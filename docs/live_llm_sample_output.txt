@@ -1,0 +1,48 @@
+live sample size: 20 real `claude -p` subprocess calls
+  answerable questions in sample: 15
+  refusal-designed questions in sample: 5
+
+[1] ANSWERABLE  Q-0145: 'What is the operating status of asset AST-00082?'
+    tool=get_asset_status refused=False citations=['AST-00082'] expected=['AST-00082']  -> CORRECT
+[2] ANSWERABLE  Q-0146: 'What is the operating status of asset AST-00036?'
+    tool=get_asset_status refused=False citations=['AST-00036'] expected=['AST-00036']  -> CORRECT
+[3] ANSWERABLE  Q-0366: 'How many technicians are assigned to site STE-0005?'
+    tool=get_site_technician_count refused=False citations=['STE-0005'] expected=['STE-0005']  -> CORRECT
+[4] ANSWERABLE  Q-0372: 'How many technicians are assigned to site STE-0001?'
+    tool=get_site_technician_count refused=False citations=['STE-0001'] expected=['STE-0001']  -> CORRECT
+[5] ANSWERABLE  Q-0324: 'How many units of part PRT-0008 were used on work order WO-000133?'
+    tool=get_part_usage_in_work_order refused=False citations=['WO-000133', 'PRT-0008'] expected=['WO-000133', 'PRT-0008']  -> CORRECT
+[6] ANSWERABLE  Q-0367: 'How many technicians are assigned to site STE-0002?'
+    tool=get_site_technician_count refused=False citations=['STE-0002'] expected=['STE-0002']  -> CORRECT
+[7] ANSWERABLE  Q-0345: 'How many units of part PRT-0025 were used on work order WO-000243?'
+    tool=get_part_usage_in_work_order refused=False citations=['WO-000243', 'PRT-0025'] expected=['WO-000243', 'PRT-0025']  -> CORRECT
+[8] ANSWERABLE  Q-0104: 'Which asset is associated with work order WO-000378?'
+    tool=get_work_order_asset refused=False citations=['WO-000378', 'AST-00044'] expected=['WO-000378', 'AST-00044']  -> CORRECT
+[9] ANSWERABLE  Q-0139: 'What is the operating status of asset AST-00129?'
+    tool=get_asset_status refused=False citations=['AST-00129'] expected=['AST-00129']  -> CORRECT
+[10] ANSWERABLE  Q-0052: 'What priority level is assigned to work order WO-000144?'
+    tool=get_work_order_priority refused=False citations=['WO-000144'] expected=['WO-000144']  -> CORRECT
+[11] ANSWERABLE  Q-0131: 'What is the operating status of asset AST-00091?'
+    tool=get_asset_status refused=False citations=['AST-00091'] expected=['AST-00091']  -> CORRECT
+[12] ANSWERABLE  Q-0344: 'How many units of part PRT-0022 were used on work order WO-000414?'
+    tool=get_part_usage_in_work_order refused=False citations=['WO-000414', 'PRT-0022'] expected=['WO-000414', 'PRT-0022']  -> CORRECT
+[13] ANSWERABLE  Q-0284: 'How many open work orders does technician TCH-0006 currently have?'
+    tool=list_open_work_orders_for_technician refused=False citations=['TCH-0006', 'WO-000026', 'WO-000104', 'WO-000248'] expected=['TCH-0006', 'WO-000026', 'WO-000104', 'WO-000248']  -> CORRECT
+[14] ANSWERABLE  Q-0150: 'What is the operating status of asset AST-00035?'
+    tool=get_asset_status refused=False citations=['AST-00035'] expected=['AST-00035']  -> CORRECT
+[15] ANSWERABLE  Q-0274: 'How many open work orders does technician TCH-0028 currently have?'
+    tool=list_open_work_orders_for_technician refused=False citations=['TCH-0028', 'WO-000017', 'WO-000056', 'WO-000069', 'WO-000359', 'WO-000407'] expected=['TCH-0028', 'WO-000017', 'WO-000056', 'WO-000069', 'WO-000359', 'WO-000407']  -> CORRECT
+[16] REFUSAL-DESIGNED  Q-0032: 'What is the current status of work order WO-900001?'
+    model refused: True (no work_order with id 'WO-900001' in the store)  -> CORRECT
+[17] REFUSAL-DESIGNED  Q-0092: 'Which technician is assigned to work order WO-900007?'
+    model refused: True (no work_order with id 'WO-900007' in the store)  -> CORRECT
+[18] REFUSAL-DESIGNED  Q-0128: 'Which asset is associated with work order WO-900008?'
+    model refused: True (no work_order with id 'WO-900008' in the store)  -> CORRECT
+[19] REFUSAL-DESIGNED  Q-0225: 'Which site is technician TCH-9002 based at?'
+    model refused: True (no technician with id 'TCH-9002' in the store)  -> CORRECT
+[20] REFUSAL-DESIGNED  Q-0093: 'Which technician is assigned to work order WO-900004?'
+    model refused: True (no work_order with id 'WO-900004' in the store)  -> CORRECT
+
+REAL LLM SUBPROCESS CALLS MADE: 20
+answerable sample correct (tool + citation): 15 / 15
+refusal sample correct (refused): 5 / 5

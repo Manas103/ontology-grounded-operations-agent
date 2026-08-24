@@ -1,0 +1,31 @@
+total proposals generated: 500
+  ground-truth valid: 300
+  ground-truth malformed/adversarial: 200
+
+--- schema validation of malformed/adversarial proposals ---
+malformed/adversarial proposals: 200
+correctly rejected by the validator: 200
+SCHEMA-INVALID ACTIONS THAT REACHED THE APPROVAL QUEUE: 0
+
+rejections by mutation kind:
+  bad_id_pattern: 20
+  empty_required_string: 20
+  extra_disallowed_field: 20
+  invalid_enum_asset_status: 20
+  missing_required_field: 20
+  negative_quantity: 20
+  not_a_dict_int: 3
+  not_a_dict_list: 4
+  not_a_dict_none: 5
+  not_a_dict_string: 8
+  null_action_type: 20
+  unknown_action_type: 20
+  wrong_type_field_as_list: 18
+  wrong_type_qty_used_as_string: 2
+
+--- valid proposals should pass unchanged ---
+valid proposals: 300
+incorrectly rejected (false positive): 0
+
+approval queue size after run: 300
+approval queue pending: 300
