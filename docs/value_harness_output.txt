@@ -1,0 +1,18 @@
+held-out question set: 386 questions (312 answerable, 74 refusal-designed)
+
+--- manual-baseline correctness cross-check (must pass before timing counts) ---
+citation mismatches vs reference oracle: 0
+answerable questions wrongly refused: 0
+refusal-designed questions wrongly answered: 0
+MANUAL BASELINE VERIFIED CORRECT: True
+
+--- operation counts, single run over the full 386-question set ---
+assistant: 386 typed tool calls (each an indexed Session.get, O(1) amortized via the identity map / primary-key index)
+manual baseline: 71708 row comparisons across 496 linear table scans (O(n) per scan, n = rows in the scanned table)
+comparisons per question, manual baseline: 185.77 average
+
+--- wall-clock timing, 7 repeats over the full 386-question set, median reported ---
+assistant (indexed typed tool calls): median 53.644 ms (range 52.629-58.309 ms)
+manual baseline (linear scan / manual join): median 5.466 ms (range 5.189-6.218 ms)
+WALL-CLOCK SPEEDUP (manual / assistant): 0.10x
+OPERATION-COUNT RATIO (manual comparisons / assistant tool calls): 185.77x
