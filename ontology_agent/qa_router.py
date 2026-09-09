@@ -1,13 +1,14 @@
 """Deterministic rule-based tool router.
 
-This is the primary measured path for the 300+ question benchmark: fast
-(no network call) and perfectly reproducible run to run, which is what a
-300+ question, 74-refusal held-out evaluation needs to be trustworthy
-rather than anecdotal. It is intentionally simple: match a question
-against a small set of marker phrases to pick a tool, pull out typed
-object ids by their prefix, and call the tool. It never sees, builds, or
-executes SQL text; the only thing it can do is call a function out of
-`tools.TOOL_CATALOG` with keyword arguments extracted from the question.
+This is the primary measured path for the held-out benchmark: fast (no
+network call) and perfectly reproducible run to run, which is what a
+300+ question, refusal-inclusive held-out evaluation needs to be
+trustworthy rather than anecdotal. It is intentionally simple: match a
+question against a small set of marker phrases to pick a tool, pull out
+typed object ids by their prefix, and call the tool. It never sees,
+builds, or executes SQL text; the only thing it can do is call a function
+out of `tools.TOOL_CATALOG` with keyword arguments extracted from the
+question.
 
 A second, independently exercised path (`llm_client.ClaudeCLIClient`) does
 the same job by asking a real LLM to choose the tool and arguments; see
@@ -23,31 +24,31 @@ from sqlalchemy.orm import Session
 
 from ontology_agent.tools import TOOL_CATALOG, ObjectNotFoundError, ToolResult
 
-ID_PATTERN = re.compile(r"\b(WO|AST|TCH|PRT|STE)-(\d+)\b")
+ID_PATTERN = re.compile(r"\b(TL|CH|RC|PRT|ME)-(\d+)\b")
 
 PREFIX_TO_ARG = {
-    "WO": "work_order_id",
-    "AST": "asset_id",
-    "TCH": "technician_id",
+    "TL": "tool_id",
+    "CH": "chamber_id",
+    "RC": "recipe_id",
     "PRT": "part_id",
-    "STE": "site_id",
+    "ME": "maintenance_event_id",
 }
 
 # Ordered most-specific-marker-first so a longer, more specific phrase never
 # loses to a shorter substring of itself.
 _MARKERS = [
-    ("were used on work order", "get_part_usage_in_work_order"),
-    ("current status of work order", "get_work_order_status"),
-    ("priority level is assigned to work order", "get_work_order_priority"),
-    ("technician is assigned to work order", "get_work_order_technician"),
-    ("asset is associated with work order", "get_work_order_asset"),
-    ("operating status of asset", "get_asset_status"),
-    ("site is asset", "get_asset_site"),
-    ("site is technician", "get_technician_site"),
-    ("currently active", "get_technician_active"),
-    ("open work orders does technician", "list_open_work_orders_for_technician"),
+    ("were used during maintenance event", "get_part_usage_in_maintenance_event"),
+    ("current status of maintenance event", "get_maintenance_event_status"),
+    ("performed on", "get_maintenance_event_target"),
+    ("open maintenance events does chamber", "list_maintenance_events_for_chamber"),
+    ("current status of tool", "get_tool_status"),
+    ("what type of tool is", "get_tool_type"),
+    ("current status of chamber", "get_chamber_status"),
+    ("tool does chamber", "get_chamber_tool"),
+    ("chamber is recipe", "get_recipe_chamber"),
+    ("currently active", "get_recipe_active"),
     ("currently in stock", "get_part_stock"),
-    ("technicians are assigned to site", "get_site_technician_count"),
+    ("chambers are installed on tool", "list_chambers_for_tool"),
 ]
 
 
@@ -93,18 +94,18 @@ def route_question(text: str) -> RouteResult:
 
 def required_args_for_tool(tool: str) -> list[str]:
     return {
-        "get_work_order_status": ["work_order_id"],
-        "get_work_order_priority": ["work_order_id"],
-        "get_work_order_technician": ["work_order_id"],
-        "get_work_order_asset": ["work_order_id"],
-        "get_asset_status": ["asset_id"],
-        "get_asset_site": ["asset_id"],
-        "get_technician_site": ["technician_id"],
-        "get_technician_active": ["technician_id"],
-        "list_open_work_orders_for_technician": ["technician_id"],
+        "get_tool_status": ["tool_id"],
+        "get_tool_type": ["tool_id"],
+        "get_chamber_status": ["chamber_id"],
+        "get_chamber_tool": ["chamber_id"],
+        "get_recipe_chamber": ["recipe_id"],
+        "get_recipe_active": ["recipe_id"],
         "get_part_stock": ["part_id"],
-        "get_part_usage_in_work_order": ["work_order_id", "part_id"],
-        "get_site_technician_count": ["site_id"],
+        "get_maintenance_event_status": ["maintenance_event_id"],
+        "get_maintenance_event_target": ["maintenance_event_id"],
+        "list_maintenance_events_for_chamber": ["chamber_id"],
+        "get_part_usage_in_maintenance_event": ["maintenance_event_id", "part_id"],
+        "list_chambers_for_tool": ["tool_id"],
     }[tool]
 
 

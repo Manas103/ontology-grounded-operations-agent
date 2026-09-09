@@ -3,8 +3,16 @@
 Five real tables with real columns and foreign keys, not a generic
 key-value blob. Everything the Q&A path and the action-proposal path
 touch is defined here, once. `id` columns are human-legible, prefixed,
-zero-padded strings (WO-000123, AST-000045, ...) so a citation printed
-in an answer or an action proposal is unambiguous on its own.
+zero-padded strings (TL-0001, CH-00001, ...) so a citation printed in an
+answer or an action proposal is unambiguous on its own.
+
+This is the equipment domain model: a semiconductor-fab-style hierarchy
+of tools (the physical machines), chambers (a tool's process modules),
+recipes (the process programs a chamber runs), parts (consumables and
+spares), and maintenance events (work performed on a tool or a chamber
+that consumes parts). It replaces the sites/technicians/assets/parts/work
+orders model this repository originally shipped with; see README,
+"Extending the original operations agent," for what changed and why.
 """
 from __future__ import annotations
 
@@ -22,60 +30,92 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-ASSET_STATUSES = ("operational", "degraded", "down", "decommissioned")
-WORK_ORDER_STATUSES = ("open", "in_progress", "on_hold", "closed")
-WORK_ORDER_PRIORITIES = ("low", "medium", "high", "critical")
+TOOL_STATUSES = ("operational", "degraded", "down", "decommissioned")
+CHAMBER_STATUSES = ("operational", "degraded", "down", "decommissioned")
+CHAMBER_TYPES = ("process", "load_lock", "transfer")
+MAINTENANCE_TYPES = ("preventive", "corrective", "calibration", "inspection")
+MAINTENANCE_STATUSES = ("scheduled", "in_progress", "completed", "cancelled")
 
 
 class Base(DeclarativeBase):
     pass
 
 
-class Site(Base):
-    __tablename__ = "sites"
+class Tool(Base):
+    """A physical piece of fab equipment (an etch tool, a deposition tool,
+    a CMP tool, ...). The top of the hierarchy: a tool has many chambers."""
+
+    __tablename__ = "tools"
 
     id: Mapped[str] = mapped_column(String(16), primary_key=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
-    region: Mapped[str] = mapped_column(String(64), nullable=False)
-    timezone: Mapped[str] = mapped_column(String(32), nullable=False)
-
-    technicians: Mapped[list["Technician"]] = relationship(back_populates="site")
-    assets: Mapped[list["Asset"]] = relationship(back_populates="site")
-
-
-class Technician(Base):
-    __tablename__ = "technicians"
-
-    id: Mapped[str] = mapped_column(String(16), primary_key=True)
-    name: Mapped[str] = mapped_column(String(120), nullable=False)
-    site_id: Mapped[str] = mapped_column(ForeignKey("sites.id"), nullable=False)
-    certification_level: Mapped[str] = mapped_column(String(32), nullable=False)
-    active: Mapped[bool] = mapped_column(nullable=False, default=True)
-
-    site: Mapped["Site"] = relationship(back_populates="technicians")
-    work_orders: Mapped[list["WorkOrder"]] = relationship(back_populates="technician")
-
-
-class Asset(Base):
-    __tablename__ = "assets"
-
-    id: Mapped[str] = mapped_column(String(16), primary_key=True)
-    site_id: Mapped[str] = mapped_column(ForeignKey("sites.id"), nullable=False)
-    asset_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    model: Mapped[str] = mapped_column(String(64), nullable=False)
-    serial_number: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    tool_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    fab_bay: Mapped[str] = mapped_column(String(64), nullable=False)
     install_date: Mapped[dt.date] = mapped_column(Date, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
 
     __table_args__ = (
-        CheckConstraint(f"status in {ASSET_STATUSES!r}", name="ck_asset_status"),
+        CheckConstraint(f"status in {TOOL_STATUSES!r}", name="ck_tool_status"),
     )
 
-    site: Mapped["Site"] = relationship(back_populates="assets")
-    work_orders: Mapped[list["WorkOrder"]] = relationship(back_populates="asset")
+    chambers: Mapped[list["Chamber"]] = relationship(back_populates="tool")
+    maintenance_events: Mapped[list["MaintenanceEvent"]] = relationship(
+        back_populates="tool"
+    )
+
+
+class Chamber(Base):
+    """A process module inside a tool. A chamber runs recipes and can
+    itself be the target of a maintenance event (chamber-level service,
+    as opposed to whole-tool service)."""
+
+    __tablename__ = "chambers"
+
+    id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    tool_id: Mapped[str] = mapped_column(ForeignKey("tools.id"), nullable=False)
+    chamber_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    chamber_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(f"status in {CHAMBER_STATUSES!r}", name="ck_chamber_status"),
+        CheckConstraint(f"chamber_type in {CHAMBER_TYPES!r}", name="ck_chamber_type"),
+    )
+
+    tool: Mapped["Tool"] = relationship(back_populates="chambers")
+    recipes: Mapped[list["Recipe"]] = relationship(back_populates="chamber")
+    maintenance_events: Mapped[list["MaintenanceEvent"]] = relationship(
+        back_populates="chamber"
+    )
+
+
+class Recipe(Base):
+    """A process program a chamber runs. References a primary consumable
+    part when the process has one (an etch recipe's electrode, a
+    deposition recipe's target material, and so on); nullable, because not
+    every recipe has a distinguished consumable."""
+
+    __tablename__ = "recipes"
+
+    id: Mapped[str] = mapped_column(String(16), primary_key=True)
+    chamber_id: Mapped[str] = mapped_column(ForeignKey("chambers.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    process_step: Mapped[str] = mapped_column(String(64), nullable=False)
+    revision: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_active: Mapped[bool] = mapped_column(nullable=False, default=True)
+    primary_part_id: Mapped[str | None] = mapped_column(
+        ForeignKey("parts.id"), nullable=True
+    )
+
+    chamber: Mapped["Chamber"] = relationship(back_populates="recipes")
+    primary_part: Mapped["Part | None"] = relationship(back_populates="recipes_using")
 
 
 class Part(Base):
+    """A consumable or spare part: seals, liners, filters, sensors, and so
+    on. Referenced by recipes (as a process consumable) and by maintenance
+    events (as something a repair or PM used up)."""
+
     __tablename__ = "parts"
 
     id: Mapped[str] = mapped_column(String(16), primary_key=True)
@@ -83,46 +123,67 @@ class Part(Base):
     sku: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
     unit_cost: Mapped[float] = mapped_column(Numeric(10, 2), nullable=False)
     stock_qty: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_consumable: Mapped[bool] = mapped_column(nullable=False, default=True)
 
-    usages: Mapped[list["WorkOrderPart"]] = relationship(back_populates="part")
+    recipes_using: Mapped[list["Recipe"]] = relationship(back_populates="primary_part")
+    usages: Mapped[list["MaintenanceEventPart"]] = relationship(back_populates="part")
 
 
-class WorkOrder(Base):
-    __tablename__ = "work_orders"
+class MaintenanceEvent(Base):
+    """Work performed on a tool or on one of its chambers: a preventive
+    maintenance visit, a corrective repair, a calibration, an inspection.
+    Exactly one of `tool_id` (whole-tool service) or `chamber_id`
+    (chamber-level service) is set, enforced by a CHECK constraint, not
+    just by convention."""
+
+    __tablename__ = "maintenance_events"
 
     id: Mapped[str] = mapped_column(String(16), primary_key=True)
-    asset_id: Mapped[str] = mapped_column(ForeignKey("assets.id"), nullable=False)
-    technician_id: Mapped[str | None] = mapped_column(
-        ForeignKey("technicians.id"), nullable=True
+    tool_id: Mapped[str | None] = mapped_column(ForeignKey("tools.id"), nullable=True)
+    chamber_id: Mapped[str | None] = mapped_column(
+        ForeignKey("chambers.id"), nullable=True
     )
+    maintenance_type: Mapped[str] = mapped_column(String(16), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False)
-    priority: Mapped[str] = mapped_column(String(16), nullable=False)
     opened_at: Mapped[dt.datetime] = mapped_column(DateTime, nullable=False)
     closed_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
     description: Mapped[str] = mapped_column(Text, nullable=False)
 
     __table_args__ = (
-        CheckConstraint(f"status in {WORK_ORDER_STATUSES!r}", name="ck_wo_status"),
-        CheckConstraint(f"priority in {WORK_ORDER_PRIORITIES!r}", name="ck_wo_priority"),
+        CheckConstraint(
+            f"maintenance_type in {MAINTENANCE_TYPES!r}", name="ck_me_type"
+        ),
+        CheckConstraint(f"status in {MAINTENANCE_STATUSES!r}", name="ck_me_status"),
+        CheckConstraint(
+            "(tool_id is not null and chamber_id is null) "
+            "or (tool_id is null and chamber_id is not null)",
+            name="ck_me_single_target",
+        ),
     )
 
-    asset: Mapped["Asset"] = relationship(back_populates="work_orders")
-    technician: Mapped["Technician | None"] = relationship(back_populates="work_orders")
-    parts_used: Mapped[list["WorkOrderPart"]] = relationship(back_populates="work_order")
+    tool: Mapped["Tool | None"] = relationship(back_populates="maintenance_events")
+    chamber: Mapped["Chamber | None"] = relationship(
+        back_populates="maintenance_events"
+    )
+    parts_used: Mapped[list["MaintenanceEventPart"]] = relationship(
+        back_populates="maintenance_event"
+    )
 
 
-class WorkOrderPart(Base):
-    """Join table: which parts, and how many, were used on which work order."""
+class MaintenanceEventPart(Base):
+    """Join table: which parts, and how many, a maintenance event consumed."""
 
-    __tablename__ = "work_order_parts"
+    __tablename__ = "maintenance_event_parts"
 
-    work_order_id: Mapped[str] = mapped_column(
-        ForeignKey("work_orders.id"), primary_key=True
+    maintenance_event_id: Mapped[str] = mapped_column(
+        ForeignKey("maintenance_events.id"), primary_key=True
     )
     part_id: Mapped[str] = mapped_column(ForeignKey("parts.id"), primary_key=True)
     qty_used: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    __table_args__ = (CheckConstraint("qty_used > 0", name="ck_wop_qty_positive"),)
+    __table_args__ = (CheckConstraint("qty_used > 0", name="ck_mep_qty_positive"),)
 
-    work_order: Mapped["WorkOrder"] = relationship(back_populates="parts_used")
+    maintenance_event: Mapped["MaintenanceEvent"] = relationship(
+        back_populates="parts_used"
+    )
     part: Mapped["Part"] = relationship(back_populates="usages")

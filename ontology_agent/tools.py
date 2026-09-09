@@ -14,6 +14,11 @@ If the object referenced does not exist, every function raises
 `ObjectNotFoundError` rather than returning a null-shaped answer. Callers
 (the router, the LLM client, the benchmark harness) are required to turn
 that into a refusal, never a guess.
+
+Twelve named tools cover the equipment domain's five object types (tools,
+chambers, recipes, parts, maintenance events) and the relationships between
+them (a tool has chambers, a chamber runs recipes, a maintenance event
+targets a tool or a chamber and consumes parts).
 """
 from __future__ import annotations
 
@@ -22,7 +27,7 @@ from typing import Callable
 
 from sqlalchemy.orm import Session
 
-from ontology_agent.models import Asset, Part, Site, Technician, WorkOrder, WorkOrderPart
+from ontology_agent.models import Chamber, MaintenanceEvent, MaintenanceEventPart, Part, Recipe, Tool
 
 
 class ObjectNotFoundError(Exception):
@@ -43,24 +48,24 @@ class ToolResult:
     source_object_ids: list[str] = field(default_factory=list)
 
 
-def _require_asset(session: Session, asset_id: str) -> Asset:
-    obj = session.get(Asset, asset_id)
+def _require_tool(session: Session, tool_id: str) -> Tool:
+    obj = session.get(Tool, tool_id)
     if obj is None:
-        raise ObjectNotFoundError("asset", asset_id)
+        raise ObjectNotFoundError("tool", tool_id)
     return obj
 
 
-def _require_technician(session: Session, technician_id: str) -> Technician:
-    obj = session.get(Technician, technician_id)
+def _require_chamber(session: Session, chamber_id: str) -> Chamber:
+    obj = session.get(Chamber, chamber_id)
     if obj is None:
-        raise ObjectNotFoundError("technician", technician_id)
+        raise ObjectNotFoundError("chamber", chamber_id)
     return obj
 
 
-def _require_site(session: Session, site_id: str) -> Site:
-    obj = session.get(Site, site_id)
+def _require_recipe(session: Session, recipe_id: str) -> Recipe:
+    obj = session.get(Recipe, recipe_id)
     if obj is None:
-        raise ObjectNotFoundError("site", site_id)
+        raise ObjectNotFoundError("recipe", recipe_id)
     return obj
 
 
@@ -71,88 +76,64 @@ def _require_part(session: Session, part_id: str) -> Part:
     return obj
 
 
-def _require_work_order(session: Session, work_order_id: str) -> WorkOrder:
-    obj = session.get(WorkOrder, work_order_id)
+def _require_maintenance_event(session: Session, maintenance_event_id: str) -> MaintenanceEvent:
+    obj = session.get(MaintenanceEvent, maintenance_event_id)
     if obj is None:
-        raise ObjectNotFoundError("work_order", work_order_id)
+        raise ObjectNotFoundError("maintenance_event", maintenance_event_id)
     return obj
 
 
-def get_work_order_status(session: Session, work_order_id: str) -> ToolResult:
-    wo = _require_work_order(session, work_order_id)
+def get_tool_status(session: Session, tool_id: str) -> ToolResult:
+    tool = _require_tool(session, tool_id)
     return ToolResult(
-        summary=f"Work order {wo.id} is currently '{wo.status}'.",
-        value=wo.status,
-        source_object_ids=[wo.id],
+        summary=f"Tool {tool.id} status is '{tool.status}'.",
+        value=tool.status,
+        source_object_ids=[tool.id],
     )
 
 
-def get_work_order_priority(session: Session, work_order_id: str) -> ToolResult:
-    wo = _require_work_order(session, work_order_id)
+def get_tool_type(session: Session, tool_id: str) -> ToolResult:
+    tool = _require_tool(session, tool_id)
     return ToolResult(
-        summary=f"Work order {wo.id} has priority '{wo.priority}'.",
-        value=wo.priority,
-        source_object_ids=[wo.id],
+        summary=f"Tool {tool.id} is a '{tool.tool_type}' tool.",
+        value=tool.tool_type,
+        source_object_ids=[tool.id],
     )
 
 
-def get_work_order_technician(session: Session, work_order_id: str) -> ToolResult:
-    wo = _require_work_order(session, work_order_id)
-    if wo.technician_id is None:
-        return ToolResult(
-            summary=f"Work order {wo.id} has no technician assigned.",
-            value=None,
-            source_object_ids=[wo.id],
-        )
+def get_chamber_status(session: Session, chamber_id: str) -> ToolResult:
+    chamber = _require_chamber(session, chamber_id)
     return ToolResult(
-        summary=f"Work order {wo.id} is assigned to technician {wo.technician_id}.",
-        value=wo.technician_id,
-        source_object_ids=[wo.id, wo.technician_id],
+        summary=f"Chamber {chamber.id} status is '{chamber.status}'.",
+        value=chamber.status,
+        source_object_ids=[chamber.id],
     )
 
 
-def get_work_order_asset(session: Session, work_order_id: str) -> ToolResult:
-    wo = _require_work_order(session, work_order_id)
+def get_chamber_tool(session: Session, chamber_id: str) -> ToolResult:
+    chamber = _require_chamber(session, chamber_id)
     return ToolResult(
-        summary=f"Work order {wo.id} is for asset {wo.asset_id}.",
-        value=wo.asset_id,
-        source_object_ids=[wo.id, wo.asset_id],
+        summary=f"Chamber {chamber.id} belongs to tool {chamber.tool_id}.",
+        value=chamber.tool_id,
+        source_object_ids=[chamber.id, chamber.tool_id],
     )
 
 
-def get_asset_status(session: Session, asset_id: str) -> ToolResult:
-    asset = _require_asset(session, asset_id)
+def get_recipe_chamber(session: Session, recipe_id: str) -> ToolResult:
+    recipe = _require_recipe(session, recipe_id)
     return ToolResult(
-        summary=f"Asset {asset.id} status is '{asset.status}'.",
-        value=asset.status,
-        source_object_ids=[asset.id],
+        summary=f"Recipe {recipe.id} is assigned to chamber {recipe.chamber_id}.",
+        value=recipe.chamber_id,
+        source_object_ids=[recipe.id, recipe.chamber_id],
     )
 
 
-def get_asset_site(session: Session, asset_id: str) -> ToolResult:
-    asset = _require_asset(session, asset_id)
+def get_recipe_active(session: Session, recipe_id: str) -> ToolResult:
+    recipe = _require_recipe(session, recipe_id)
     return ToolResult(
-        summary=f"Asset {asset.id} is located at site {asset.site_id}.",
-        value=asset.site_id,
-        source_object_ids=[asset.id, asset.site_id],
-    )
-
-
-def get_technician_site(session: Session, technician_id: str) -> ToolResult:
-    tech = _require_technician(session, technician_id)
-    return ToolResult(
-        summary=f"Technician {tech.id} is based at site {tech.site_id}.",
-        value=tech.site_id,
-        source_object_ids=[tech.id, tech.site_id],
-    )
-
-
-def get_technician_active(session: Session, technician_id: str) -> ToolResult:
-    tech = _require_technician(session, technician_id)
-    return ToolResult(
-        summary=f"Technician {tech.id} active status is {tech.active}.",
-        value=tech.active,
-        source_object_ids=[tech.id],
+        summary=f"Recipe {recipe.id} active status is {recipe.is_active}.",
+        value=recipe.is_active,
+        source_object_ids=[recipe.id],
     )
 
 
@@ -165,44 +146,61 @@ def get_part_stock(session: Session, part_id: str) -> ToolResult:
     )
 
 
-def list_open_work_orders_for_technician(
-    session: Session, technician_id: str
-) -> ToolResult:
-    tech = _require_technician(session, technician_id)
-    open_wos = [
-        wo.id
-        for wo in tech.work_orders
-        if wo.status in ("open", "in_progress", "on_hold")
+def get_maintenance_event_status(session: Session, maintenance_event_id: str) -> ToolResult:
+    event = _require_maintenance_event(session, maintenance_event_id)
+    return ToolResult(
+        summary=f"Maintenance event {event.id} is currently '{event.status}'.",
+        value=event.status,
+        source_object_ids=[event.id],
+    )
+
+
+def get_maintenance_event_target(session: Session, maintenance_event_id: str) -> ToolResult:
+    event = _require_maintenance_event(session, maintenance_event_id)
+    target_id = event.tool_id if event.tool_id is not None else event.chamber_id
+    target_kind = "tool" if event.tool_id is not None else "chamber"
+    return ToolResult(
+        summary=f"Maintenance event {event.id} was performed on {target_kind} {target_id}.",
+        value=target_id,
+        source_object_ids=[event.id, target_id],
+    )
+
+
+def list_maintenance_events_for_chamber(session: Session, chamber_id: str) -> ToolResult:
+    chamber = _require_chamber(session, chamber_id)
+    open_events = [
+        e.id for e in chamber.maintenance_events if e.status in ("scheduled", "in_progress")
     ]
     return ToolResult(
-        summary=f"Technician {tech.id} has {len(open_wos)} open work order(s): "
-        f"{', '.join(open_wos) if open_wos else 'none'}.",
-        value=open_wos,
-        source_object_ids=[tech.id, *open_wos],
+        summary=f"Chamber {chamber.id} has {len(open_events)} open maintenance event(s): "
+        f"{', '.join(open_events) if open_events else 'none'}.",
+        value=open_events,
+        source_object_ids=[chamber.id, *open_events],
     )
 
 
-def get_part_usage_in_work_order(
-    session: Session, work_order_id: str, part_id: str
+def get_part_usage_in_maintenance_event(
+    session: Session, maintenance_event_id: str, part_id: str
 ) -> ToolResult:
-    wo = _require_work_order(session, work_order_id)
+    event = _require_maintenance_event(session, maintenance_event_id)
     part = _require_part(session, part_id)
-    link = session.get(WorkOrderPart, (wo.id, part.id))
+    link = session.get(MaintenanceEventPart, (event.id, part.id))
     qty = link.qty_used if link is not None else 0
     return ToolResult(
-        summary=f"Work order {wo.id} used {qty} unit(s) of part {part.id}.",
+        summary=f"Maintenance event {event.id} used {qty} unit(s) of part {part.id}.",
         value=qty,
-        source_object_ids=[wo.id, part.id],
+        source_object_ids=[event.id, part.id],
     )
 
 
-def get_site_technician_count(session: Session, site_id: str) -> ToolResult:
-    site = _require_site(session, site_id)
-    count = len(site.technicians)
+def list_chambers_for_tool(session: Session, tool_id: str) -> ToolResult:
+    tool = _require_tool(session, tool_id)
+    chamber_ids = [c.id for c in tool.chambers]
     return ToolResult(
-        summary=f"Site {site.id} has {count} technician(s) assigned.",
-        value=count,
-        source_object_ids=[site.id],
+        summary=f"Tool {tool.id} has {len(chamber_ids)} chamber(s): "
+        f"{', '.join(chamber_ids) if chamber_ids else 'none'}.",
+        value=chamber_ids,
+        source_object_ids=[tool.id, *chamber_ids],
     )
 
 
@@ -210,16 +208,16 @@ def get_site_technician_count(session: Session, site_id: str) -> ToolResult:
 # Deliberately not exposed as "run arbitrary SQL"; this dict is the entire
 # read surface of the system.
 TOOL_CATALOG: dict[str, Callable[..., ToolResult]] = {
-    "get_work_order_status": get_work_order_status,
-    "get_work_order_priority": get_work_order_priority,
-    "get_work_order_technician": get_work_order_technician,
-    "get_work_order_asset": get_work_order_asset,
-    "get_asset_status": get_asset_status,
-    "get_asset_site": get_asset_site,
-    "get_technician_site": get_technician_site,
-    "get_technician_active": get_technician_active,
+    "get_tool_status": get_tool_status,
+    "get_tool_type": get_tool_type,
+    "get_chamber_status": get_chamber_status,
+    "get_chamber_tool": get_chamber_tool,
+    "get_recipe_chamber": get_recipe_chamber,
+    "get_recipe_active": get_recipe_active,
     "get_part_stock": get_part_stock,
-    "list_open_work_orders_for_technician": list_open_work_orders_for_technician,
-    "get_part_usage_in_work_order": get_part_usage_in_work_order,
-    "get_site_technician_count": get_site_technician_count,
+    "get_maintenance_event_status": get_maintenance_event_status,
+    "get_maintenance_event_target": get_maintenance_event_target,
+    "list_maintenance_events_for_chamber": list_maintenance_events_for_chamber,
+    "get_part_usage_in_maintenance_event": get_part_usage_in_maintenance_event,
+    "list_chambers_for_tool": list_chambers_for_tool,
 }

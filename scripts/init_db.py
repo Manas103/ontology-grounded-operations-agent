@@ -21,12 +21,12 @@ def main() -> None:
     Session = make_session_factory(engine)
     with Session() as session:
         graph = seed_database(session)
-        print(f"seeded {len(graph.site_ids)} sites")
-        print(f"seeded {len(graph.technician_ids)} technicians")
-        print(f"seeded {len(graph.asset_ids)} assets")
+        print(f"seeded {len(graph.tool_ids)} tools")
+        print(f"seeded {len(graph.chamber_ids)} chambers")
+        print(f"seeded {len(graph.recipe_ids)} recipes")
         print(f"seeded {len(graph.part_ids)} parts")
-        print(f"seeded {len(graph.work_order_ids)} work orders")
-        print(f"seeded {len(graph.work_order_part_pairs)} work-order/part usage rows")
+        print(f"seeded {len(graph.maintenance_event_ids)} maintenance events")
+        print(f"seeded {len(graph.maintenance_event_part_pairs)} maintenance-event/part usage rows")
 
 
 if __name__ == "__main__":

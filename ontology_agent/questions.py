@@ -1,9 +1,9 @@
 """The held-out synthetic question set and the holdout-removal step.
 
 `build_question_set` produces a reproducible set of natural-language
-operational questions from the seeded object graph: most reference an
+equipment questions from the seeded object graph: most reference an
 object that is genuinely present in the store (answerable, with a known
-correct tool call and expected citation), and exactly 74 are built to
+correct tool call and expected citation), and a fixed number are built to
 reference an object id that has been created and then deliberately
 deleted from the store, so the only correct system behaviour is refusal.
 
@@ -21,7 +21,7 @@ import random
 
 from sqlalchemy.orm import Session
 
-from ontology_agent.models import Asset, Part, Site, Technician, WorkOrder
+from ontology_agent.models import Chamber, MaintenanceEvent, Part, Recipe, Tool
 from ontology_agent.seed import SeededObjectGraph
 
 REFUSAL_TOTAL = 74
@@ -38,55 +38,39 @@ class Question:
     expected_source_object_ids: list[str]
 
 
-# Each entry: (tool_name, marker phrase used by the router, phrase builder,
-# id-type key(s) consumed from the args dict passed to phrase builder,
-# which arg key is the one that gets swapped for a missing id on refusal
-# questions -- the "primary" missing type).
+# Each entry: (tool_name, phrase builder, id-type key(s) consumed from the
+# args dict passed to phrase builder). The first key in each list is the
+# one swapped for a missing id on refusal questions.
 _TEMPLATES = [
     (
-        "get_work_order_status",
-        lambda a: f"What is the current status of work order {a['work_order_id']}?",
-        ["work_order_id"],
+        "get_tool_status",
+        lambda a: f"What is the current status of tool {a['tool_id']}?",
+        ["tool_id"],
     ),
     (
-        "get_work_order_priority",
-        lambda a: f"What priority level is assigned to work order {a['work_order_id']}?",
-        ["work_order_id"],
+        "get_tool_type",
+        lambda a: f"What type of tool is {a['tool_id']}?",
+        ["tool_id"],
     ),
     (
-        "get_work_order_technician",
-        lambda a: f"Which technician is assigned to work order {a['work_order_id']}?",
-        ["work_order_id"],
+        "get_chamber_status",
+        lambda a: f"What is the current status of chamber {a['chamber_id']}?",
+        ["chamber_id"],
     ),
     (
-        "get_work_order_asset",
-        lambda a: f"Which asset is associated with work order {a['work_order_id']}?",
-        ["work_order_id"],
+        "get_chamber_tool",
+        lambda a: f"Which tool does chamber {a['chamber_id']} belong to?",
+        ["chamber_id"],
     ),
     (
-        "get_asset_status",
-        lambda a: f"What is the operating status of asset {a['asset_id']}?",
-        ["asset_id"],
+        "get_recipe_chamber",
+        lambda a: f"Which chamber is recipe {a['recipe_id']} assigned to?",
+        ["recipe_id"],
     ),
     (
-        "get_asset_site",
-        lambda a: f"Which site is asset {a['asset_id']} located at?",
-        ["asset_id"],
-    ),
-    (
-        "get_technician_site",
-        lambda a: f"Which site is technician {a['technician_id']} based at?",
-        ["technician_id"],
-    ),
-    (
-        "get_technician_active",
-        lambda a: f"Is technician {a['technician_id']} currently active?",
-        ["technician_id"],
-    ),
-    (
-        "list_open_work_orders_for_technician",
-        lambda a: f"How many open work orders does technician {a['technician_id']} currently have?",
-        ["technician_id"],
+        "get_recipe_active",
+        lambda a: f"Is recipe {a['recipe_id']} currently active?",
+        ["recipe_id"],
     ),
     (
         "get_part_stock",
@@ -94,31 +78,46 @@ _TEMPLATES = [
         ["part_id"],
     ),
     (
-        "get_part_usage_in_work_order",
-        lambda a: f"How many units of part {a['part_id']} were used on work order {a['work_order_id']}?",
-        ["part_id", "work_order_id"],
+        "get_maintenance_event_status",
+        lambda a: f"What is the current status of maintenance event {a['maintenance_event_id']}?",
+        ["maintenance_event_id"],
     ),
     (
-        "get_site_technician_count",
-        lambda a: f"How many technicians are assigned to site {a['site_id']}?",
-        ["site_id"],
+        "get_maintenance_event_target",
+        lambda a: f"Which tool or chamber was maintenance event {a['maintenance_event_id']} performed on?",
+        ["maintenance_event_id"],
+    ),
+    (
+        "list_maintenance_events_for_chamber",
+        lambda a: f"How many open maintenance events does chamber {a['chamber_id']} currently have?",
+        ["chamber_id"],
+    ),
+    (
+        "get_part_usage_in_maintenance_event",
+        lambda a: f"How many units of part {a['part_id']} were used during maintenance event {a['maintenance_event_id']}?",
+        ["maintenance_event_id", "part_id"],
+    ),
+    (
+        "list_chambers_for_tool",
+        lambda a: f"How many chambers are installed on tool {a['tool_id']}?",
+        ["tool_id"],
     ),
 ]
 
 # Number of refusal questions built per template; sums to REFUSAL_TOTAL (74).
 _REFUSAL_COUNTS = {
-    "get_work_order_status": 7,
-    "get_work_order_priority": 6,
-    "get_work_order_technician": 7,
-    "get_work_order_asset": 6,
-    "get_asset_status": 6,
-    "get_asset_site": 6,
-    "get_technician_site": 6,
-    "get_technician_active": 6,
-    "list_open_work_orders_for_technician": 6,
+    "get_tool_status": 7,
+    "get_tool_type": 6,
+    "get_chamber_status": 7,
+    "get_chamber_tool": 6,
+    "get_recipe_chamber": 6,
+    "get_recipe_active": 6,
     "get_part_stock": 6,
-    "get_part_usage_in_work_order": 6,
-    "get_site_technician_count": 6,
+    "get_maintenance_event_status": 6,
+    "get_maintenance_event_target": 6,
+    "list_maintenance_events_for_chamber": 6,
+    "get_part_usage_in_maintenance_event": 6,
+    "list_chambers_for_tool": 6,
 }
 assert sum(_REFUSAL_COUNTS.values()) == REFUSAL_TOTAL
 
@@ -136,58 +135,64 @@ def create_and_delete_holdout_objects(
     were simply never used.
     """
     rng = random.Random(seed + 1)
-    kept_site = graph.site_ids[0]
+    kept_tool = graph.tool_ids[0]
+    kept_chamber = graph.chamber_ids[0]
 
-    removed_sites = [Site(id=f"STE-{900+i:04d}", name=f"Decommissioned Site {i}",
-                          region="Retired", timezone="UTC") for i in range(4)]
-    removed_technicians = [
-        Technician(id=f"TCH-{9000+i:04d}", name=f"Former Technician {i}",
-                   site_id=kept_site, certification_level="journeyman", active=False)
+    removed_tools = [
+        Tool(id=f"TL-{9000+i:04d}", name=f"Decommissioned Tool {i}",
+             tool_type="Retired Platform", fab_bay="Retired",
+             install_date=dt.date(2015, 1, 1), status="decommissioned")
+        for i in range(4)
+    ]
+    removed_chambers = [
+        Chamber(id=f"CH-{90000+i:05d}", tool_id=kept_tool, chamber_number=900 + i,
+                chamber_type="process", status="decommissioned")
         for i in range(8)
     ]
-    removed_assets = [
-        Asset(id=f"AST-{90000+i:05d}", site_id=kept_site, asset_type="Retired Unit",
-              model="N/A", serial_number=f"RETIRED-{seed}-{i}",
-              install_date=dt.date(2015, 1, 1), status="decommissioned")
+    removed_recipes = [
+        Recipe(id=f"RC-{90000+i:05d}", chamber_id=kept_chamber, name=f"Retired Recipe {i}",
+               process_step="retired step", revision=0, is_active=False,
+               primary_part_id=None)
         for i in range(8)
     ]
     removed_parts = [
         Part(id=f"PRT-{900+i:04d}", name=f"Obsolete Part {i}", sku=f"OBS-{i}",
-             unit_cost=1.0, stock_qty=0)
+             unit_cost=1.0, stock_qty=0, is_consumable=False)
         for i in range(8)
     ]
-    session.add_all(removed_sites + removed_technicians + removed_assets + removed_parts)
+    session.add_all(removed_tools + removed_chambers + removed_recipes + removed_parts)
     session.flush()
 
-    removed_work_orders = [
-        WorkOrder(
-            id=f"WO-{900000+i:06d}", asset_id=graph.asset_ids[0], technician_id=None,
-            status="closed", priority="low", opened_at=dt.datetime(2025, 1, 1),
-            closed_at=dt.datetime(2025, 1, 2), description="Cancelled test work order.",
+    removed_maintenance_events = [
+        MaintenanceEvent(
+            id=f"ME-{900000+i:06d}", tool_id=kept_tool, chamber_id=None,
+            maintenance_type="corrective", status="cancelled",
+            opened_at=dt.datetime(2025, 1, 1), closed_at=dt.datetime(2025, 1, 2),
+            description="Cancelled test maintenance event.",
         )
         for i in range(10)
     ]
-    session.add_all(removed_work_orders)
+    session.add_all(removed_maintenance_events)
     session.commit()
 
     removed_ids = {
-        "site_id": [s.id for s in removed_sites],
-        "technician_id": [t.id for t in removed_technicians],
-        "asset_id": [a.id for a in removed_assets],
+        "tool_id": [t.id for t in removed_tools],
+        "chamber_id": [c.id for c in removed_chambers],
+        "recipe_id": [r.id for r in removed_recipes],
         "part_id": [p.id for p in removed_parts],
-        "work_order_id": [w.id for w in removed_work_orders],
+        "maintenance_event_id": [m.id for m in removed_maintenance_events],
     }
 
-    for wo in removed_work_orders:
-        session.delete(wo)
-    for a in removed_assets:
-        session.delete(a)
-    for t in removed_technicians:
-        session.delete(t)
+    for m in removed_maintenance_events:
+        session.delete(m)
+    for r in removed_recipes:
+        session.delete(r)
+    for c in removed_chambers:
+        session.delete(c)
     for p in removed_parts:
         session.delete(p)
-    for s in removed_sites:
-        session.delete(s)
+    for t in removed_tools:
+        session.delete(t)
     session.commit()
 
     return removed_ids
@@ -197,36 +202,37 @@ def _expected_sources(tool: str, args: dict[str, str], session: Session) -> list
     """Compute the correct citation set for an answerable question directly
     from the store, independent of any tool implementation, so the
     benchmark has a reference oracle to check the tool layer against."""
-    if tool == "get_work_order_status" or tool == "get_work_order_priority":
-        return [args["work_order_id"]]
-    if tool == "get_work_order_technician":
-        wo = session.get(WorkOrder, args["work_order_id"])
-        return [wo.id] if wo.technician_id is None else [wo.id, wo.technician_id]
-    if tool == "get_work_order_asset":
-        wo = session.get(WorkOrder, args["work_order_id"])
-        return [wo.id, wo.asset_id]
-    if tool == "get_asset_status":
-        return [args["asset_id"]]
-    if tool == "get_asset_site":
-        asset = session.get(Asset, args["asset_id"])
-        return [asset.id, asset.site_id]
-    if tool == "get_technician_site":
-        tech = session.get(Technician, args["technician_id"])
-        return [tech.id, tech.site_id]
-    if tool == "get_technician_active":
-        return [args["technician_id"]]
-    if tool == "list_open_work_orders_for_technician":
-        tech = session.get(Technician, args["technician_id"])
-        open_ids = [
-            wo.id for wo in tech.work_orders if wo.status in ("open", "in_progress", "on_hold")
-        ]
-        return [tech.id, *open_ids]
+    if tool == "get_tool_status" or tool == "get_tool_type":
+        return [args["tool_id"]]
+    if tool == "get_chamber_status":
+        return [args["chamber_id"]]
+    if tool == "get_chamber_tool":
+        chamber = session.get(Chamber, args["chamber_id"])
+        return [chamber.id, chamber.tool_id]
+    if tool == "get_recipe_chamber":
+        recipe = session.get(Recipe, args["recipe_id"])
+        return [recipe.id, recipe.chamber_id]
+    if tool == "get_recipe_active":
+        return [args["recipe_id"]]
     if tool == "get_part_stock":
         return [args["part_id"]]
-    if tool == "get_part_usage_in_work_order":
-        return [args["work_order_id"], args["part_id"]]
-    if tool == "get_site_technician_count":
-        return [args["site_id"]]
+    if tool == "get_maintenance_event_status":
+        return [args["maintenance_event_id"]]
+    if tool == "get_maintenance_event_target":
+        event = session.get(MaintenanceEvent, args["maintenance_event_id"])
+        target_id = event.tool_id if event.tool_id is not None else event.chamber_id
+        return [event.id, target_id]
+    if tool == "list_maintenance_events_for_chamber":
+        chamber = session.get(Chamber, args["chamber_id"])
+        open_ids = [
+            e.id for e in chamber.maintenance_events if e.status in ("scheduled", "in_progress")
+        ]
+        return [chamber.id, *open_ids]
+    if tool == "get_part_usage_in_maintenance_event":
+        return [args["maintenance_event_id"], args["part_id"]]
+    if tool == "list_chambers_for_tool":
+        tool_obj = session.get(Tool, args["tool_id"])
+        return [tool_obj.id, *[c.id for c in tool_obj.chambers]]
     raise ValueError(f"unknown tool {tool}")
 
 
@@ -240,18 +246,19 @@ def build_question_set(
     questions: list[Question] = []
     qnum = 0
 
+    pools = {
+        "tool_id": graph.tool_ids,
+        "chamber_id": graph.chamber_ids,
+        "recipe_id": graph.recipe_ids,
+        "part_id": graph.part_ids,
+        "maintenance_event_id": graph.maintenance_event_ids,
+    }
+
     for tool, phrase_fn, arg_keys in _TEMPLATES:
         for _ in range(_ANSWERABLE_PER_TEMPLATE):
             args = {}
             for key in arg_keys:
-                pool = {
-                    "work_order_id": graph.work_order_ids,
-                    "asset_id": graph.asset_ids,
-                    "technician_id": graph.technician_ids,
-                    "part_id": graph.part_ids,
-                    "site_id": graph.site_ids,
-                }[key]
-                args[key] = rng.choice(pool)
+                args[key] = rng.choice(pools[key])
             qnum += 1
             questions.append(
                 Question(
@@ -271,14 +278,7 @@ def build_question_set(
                 if key == missing_key:
                     args[key] = rng.choice(removed_ids[key])
                 else:
-                    pool = {
-                        "work_order_id": graph.work_order_ids,
-                        "asset_id": graph.asset_ids,
-                        "technician_id": graph.technician_ids,
-                        "part_id": graph.part_ids,
-                        "site_id": graph.site_ids,
-                    }[key]
-                    args[key] = rng.choice(pool)
+                    args[key] = rng.choice(pools[key])
             qnum += 1
             questions.append(
                 Question(

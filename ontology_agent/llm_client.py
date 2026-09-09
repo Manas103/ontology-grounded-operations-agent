@@ -62,12 +62,12 @@ def _tool_catalog_prompt_block() -> str:
     return "\n".join(lines)
 
 
-TOOL_SELECTION_PROMPT_TEMPLATE = """You are a tool-routing component for an operations question-answering \
-system. You may not answer questions from general knowledge. Your only job \
+TOOL_SELECTION_PROMPT_TEMPLATE = """You are a tool-routing component for an equipment knowledge \
+assistant. You may not answer questions from general knowledge. Your only job \
 is to choose exactly one tool from the catalog below and the arguments to \
 call it with, based on the operator's question. Object ids look like \
-WO-000123 (work order), AST-00045 (asset), TCH-0012 (technician), \
-PRT-0007 (part), STE-0001 (site).
+TL-0001 (tool), CH-00045 (chamber), RC-00012 (recipe), \
+PRT-0007 (part), ME-000123 (maintenance event).
 
 Tool catalog:
 {catalog}

@@ -9,7 +9,7 @@ from ontology_agent.approval import ApprovalQueue
 def test_submit_requires_a_validated_action():
     queue = ApprovalQueue()
     with pytest.raises(TypeError):
-        queue.submit({"action_type": "close_work_order"})  # a raw dict, not ValidatedAction
+        queue.submit({"action_type": "retire_part"})  # a raw dict, not ValidatedAction
 
 
 def test_validated_action_can_be_submitted_and_decided():
@@ -17,9 +17,10 @@ def test_validated_action_can_be_submitted_and_decided():
     queue = ApprovalQueue()
     validated = validator.validate(
         {
-            "action_type": "reopen_work_order",
-            "work_order_id": "WO-000001",
-            "reason": "fault recurred within 24 hours",
+            "action_type": "flag_chamber_for_service",
+            "chamber_id": "CH-00001",
+            "severity": "medium",
+            "reason": "particle count trending up",
         }
     )
     item = queue.submit(validated)

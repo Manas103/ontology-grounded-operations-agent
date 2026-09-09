@@ -21,7 +21,7 @@ from ontology_agent.db import (
     resolve_database_url,
 )
 from ontology_agent.seed import DEFAULT_SEED, seed_database
-from ontology_agent.tools import get_work_order_status
+from ontology_agent.tools import get_tool_status
 
 pytestmark = pytest.mark.skipif(
     not postgres_is_reachable(),
@@ -44,6 +44,6 @@ def postgres_session():
 
 def test_typed_model_round_trips_through_real_postgresql(postgres_session):
     session, graph = postgres_session
-    wo_id = graph.work_order_ids[0]
-    result = get_work_order_status(session, work_order_id=wo_id)
-    assert wo_id in result.source_object_ids
+    tool_id = graph.tool_ids[0]
+    result = get_tool_status(session, tool_id=tool_id)
+    assert tool_id in result.source_object_ids

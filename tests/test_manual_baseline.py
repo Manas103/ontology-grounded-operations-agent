@@ -8,8 +8,8 @@ from ontology_agent.manual_baseline import (
     ScanStats,
     load_manual_tables,
     manual_answer_question,
-    manual_get_asset_status,
-    manual_get_site_technician_count,
+    manual_get_tool_status,
+    manual_list_chambers_for_tool,
 )
 from ontology_agent.questions import build_question_set
 from ontology_agent.tools import TOOL_CATALOG
@@ -25,11 +25,11 @@ def test_manual_tool_catalog_mirrors_the_real_one():
 def test_load_manual_tables_row_counts_match_the_seed(seeded_session):
     session, graph = seeded_session
     tables = load_manual_tables(session)
-    assert len(tables.sites) == len(graph.site_ids)
-    assert len(tables.technicians) == len(graph.technician_ids)
-    assert len(tables.assets) == len(graph.asset_ids)
+    assert len(tables.tools) == len(graph.tool_ids)
+    assert len(tables.chambers) == len(graph.chamber_ids)
+    assert len(tables.recipes) == len(graph.recipe_ids)
     assert len(tables.parts) == len(graph.part_ids)
-    assert len(tables.work_orders) == len(graph.work_order_ids)
+    assert len(tables.maintenance_events) == len(graph.maintenance_event_ids)
 
 
 def test_manual_lookup_scans_every_row_to_confirm_a_missing_id(seeded_session):
@@ -40,18 +40,17 @@ def test_manual_lookup_scans_every_row_to_confirm_a_missing_id(seeded_session):
     tables = load_manual_tables(session)
     stats = ScanStats()
     with pytest.raises(ManualNotFoundError):
-        manual_get_asset_status(tables, stats, asset_id="AST-99999")
-    assert stats.comparisons == len(tables.assets)
+        manual_get_tool_status(tables, stats, tool_id="TL-9999")
+    assert stats.comparisons == len(tables.tools)
 
 
-def test_manual_lookup_scans_every_technician_row_for_a_site_count(seeded_session):
+def test_manual_lookup_scans_every_chamber_row_for_a_tool_listing(seeded_session):
     session, graph = seeded_session
     tables = load_manual_tables(session)
     stats = ScanStats()
-    manual_get_site_technician_count(tables, stats, site_id=graph.site_ids[0])
-    # one scan to find the site (found on first comparison in the worst
-    # case among 6 sites) plus one full pass over every technician
-    assert stats.comparisons >= len(tables.technicians)
+    manual_list_chambers_for_tool(tables, stats, tool_id=graph.tool_ids[0])
+    # one scan to find the tool plus one full pass over every chamber
+    assert stats.comparisons >= len(tables.chambers)
 
 
 def test_manual_baseline_matches_reference_oracle_on_every_answerable_question(
@@ -92,22 +91,24 @@ def test_manual_baseline_refuses_on_every_holdout_question(seeded_session_with_h
 
 
 def test_manual_and_assistant_agree_on_a_multi_hop_join_citation(seeded_session):
-    """get_part_usage_in_work_order is the one tool that needs a genuine
-    join (work order id and part id both resolved, then a third table
+    """get_part_usage_in_maintenance_event is the one tool that needs a
+    genuine join (event id and part id both resolved, then a third table
     consulted for the linking row); manual and assistant must cite
     identically for it."""
-    from ontology_agent.tools import get_part_usage_in_work_order
+    from ontology_agent.tools import get_part_usage_in_maintenance_event
 
     session, graph = seeded_session
     tables = load_manual_tables(session)
     stats = ScanStats()
 
-    wo_id = graph.work_order_ids[0]
+    event_id = graph.maintenance_event_ids[0]
     part_id = graph.part_ids[0]
 
-    real_result = get_part_usage_in_work_order(session, work_order_id=wo_id, part_id=part_id)
-    manual_result = MANUAL_TOOL_CATALOG["get_part_usage_in_work_order"](
-        tables, stats, work_order_id=wo_id, part_id=part_id
+    real_result = get_part_usage_in_maintenance_event(
+        session, maintenance_event_id=event_id, part_id=part_id
+    )
+    manual_result = MANUAL_TOOL_CATALOG["get_part_usage_in_maintenance_event"](
+        tables, stats, maintenance_event_id=event_id, part_id=part_id
     )
     assert manual_result.value == real_result.value
     assert set(manual_result.source_object_ids) == set(real_result.source_object_ids)

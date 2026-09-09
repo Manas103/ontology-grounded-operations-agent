@@ -10,30 +10,31 @@ def validator():
     return ActionValidator()
 
 
-def test_valid_close_work_order_passes(validator):
+def test_valid_schedule_maintenance_passes(validator):
     action = {
-        "action_type": "close_work_order",
-        "work_order_id": "WO-000001",
-        "closed_by_technician_id": "TCH-0001",
-        "resolution_notes": "Replaced failed contactor and verified operation.",
+        "action_type": "schedule_maintenance",
+        "target_type": "chamber",
+        "target_id": "CH-00001",
+        "maintenance_type": "preventive",
+        "notes": "Quarterly PM due next week.",
     }
     validated = validator.validate(action)
     assert isinstance(validated, ValidatedAction)
-    assert validated.action_type == "close_work_order"
+    assert validated.action_type == "schedule_maintenance"
 
 
 def test_valid_record_part_usage_passes(validator):
     action = {
-        "action_type": "record_part_usage",
-        "work_order_id": "WO-000001",
+        "action_type": "record_part_usage_in_maintenance_event",
+        "maintenance_event_id": "ME-000001",
         "part_id": "PRT-0001",
         "qty_used": 2,
     }
-    assert validator.validate(action).action_type == "record_part_usage"
+    assert validator.validate(action).action_type == "record_part_usage_in_maintenance_event"
 
 
 def test_missing_required_field_rejected(validator):
-    action = {"action_type": "close_work_order", "work_order_id": "WO-000001"}
+    action = {"action_type": "retire_part", "part_id": "PRT-0001"}
     with pytest.raises(ActionValidationError):
         validator.validate(action)
 
@@ -45,9 +46,9 @@ def test_unknown_action_type_rejected(validator):
 
 def test_extra_field_rejected(validator):
     action = {
-        "action_type": "reopen_work_order",
-        "work_order_id": "WO-000001",
-        "reason": "fault recurred",
+        "action_type": "retire_part",
+        "part_id": "PRT-0001",
+        "reason": "obsolete",
         "auto_approve": True,
     }
     with pytest.raises(ActionValidationError):
@@ -56,9 +57,9 @@ def test_extra_field_rejected(validator):
 
 def test_invalid_enum_rejected(validator):
     action = {
-        "action_type": "update_asset_status",
-        "asset_id": "AST-00001",
-        "new_status": "on_fire",
+        "action_type": "flag_chamber_for_service",
+        "chamber_id": "CH-00001",
+        "severity": "catastrophic",
         "reason": "smoke observed",
     }
     with pytest.raises(ActionValidationError):
@@ -67,10 +68,9 @@ def test_invalid_enum_rejected(validator):
 
 def test_bad_id_pattern_rejected(validator):
     action = {
-        "action_type": "close_work_order",
-        "work_order_id": "not-an-id",
-        "closed_by_technician_id": "TCH-0001",
-        "resolution_notes": "x",
+        "action_type": "retire_part",
+        "part_id": "not-an-id",
+        "reason": "x",
     }
     with pytest.raises(ActionValidationError):
         validator.validate(action)
@@ -78,8 +78,8 @@ def test_bad_id_pattern_rejected(validator):
 
 def test_negative_quantity_rejected(validator):
     action = {
-        "action_type": "record_part_usage",
-        "work_order_id": "WO-000001",
+        "action_type": "record_part_usage_in_maintenance_event",
+        "maintenance_event_id": "ME-000001",
         "part_id": "PRT-0001",
         "qty_used": -1,
     }
@@ -88,17 +88,39 @@ def test_negative_quantity_rejected(validator):
 
 
 def test_non_dict_input_rejected(validator):
-    for bad in ["close it", ["close_work_order"], 42, None]:
+    for bad in ["retire it", ["retire_part"], 42, None]:
         with pytest.raises(ActionValidationError):
             validator.validate(bad)
 
 
 def test_wrong_type_for_quantity_rejected(validator):
     action = {
-        "action_type": "record_part_usage",
-        "work_order_id": "WO-000001",
+        "action_type": "record_part_usage_in_maintenance_event",
+        "maintenance_event_id": "ME-000001",
         "part_id": "PRT-0001",
         "qty_used": "two",
     }
     with pytest.raises(ActionValidationError):
         validator.validate(action)
+
+
+def test_schedule_maintenance_accepts_a_tool_target(validator):
+    action = {
+        "action_type": "schedule_maintenance",
+        "target_type": "tool",
+        "target_id": "TL-0001",
+        "maintenance_type": "calibration",
+        "notes": "Annual calibration.",
+    }
+    assert validator.validate(action).action_type == "schedule_maintenance"
+
+
+def test_update_recipe_parameters_valid(validator):
+    action = {
+        "action_type": "update_recipe_parameters",
+        "recipe_id": "RC-00001",
+        "parameter_name": "temperature_c",
+        "new_value": 210.5,
+        "reason": "Process engineering approved shift.",
+    }
+    assert validator.validate(action).action_type == "update_recipe_parameters"

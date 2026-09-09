@@ -5,78 +5,81 @@ import pytest
 from ontology_agent.tools import (
     ObjectNotFoundError,
     TOOL_CATALOG,
-    get_asset_site,
-    get_asset_status,
+    get_chamber_status,
+    get_chamber_tool,
+    get_maintenance_event_target,
     get_part_stock,
-    get_part_usage_in_work_order,
-    get_site_technician_count,
-    get_technician_active,
-    get_technician_site,
-    get_work_order_asset,
-    get_work_order_priority,
-    get_work_order_status,
-    get_work_order_technician,
-    list_open_work_orders_for_technician,
+    get_part_usage_in_maintenance_event,
+    get_recipe_active,
+    get_recipe_chamber,
+    get_tool_status,
+    get_tool_type,
+    list_chambers_for_tool,
+    list_maintenance_events_for_chamber,
 )
 
 
 def test_every_tool_cites_its_source_object(seeded_session):
     session, graph = seeded_session
-    wo_id = graph.work_order_ids[0]
-    asset_id = graph.asset_ids[0]
-    tech_id = graph.technician_ids[0]
+    tool_id = graph.tool_ids[0]
+    chamber_id = graph.chamber_ids[0]
+    recipe_id = graph.recipe_ids[0]
     part_id = graph.part_ids[0]
-    site_id = graph.site_ids[0]
+    event_id = graph.maintenance_event_ids[0]
 
     checks = [
-        (get_work_order_status(session, work_order_id=wo_id), wo_id),
-        (get_work_order_priority(session, work_order_id=wo_id), wo_id),
-        (get_work_order_asset(session, work_order_id=wo_id), wo_id),
-        (get_asset_status(session, asset_id=asset_id), asset_id),
-        (get_technician_active(session, technician_id=tech_id), tech_id),
+        (get_tool_status(session, tool_id=tool_id), tool_id),
+        (get_tool_type(session, tool_id=tool_id), tool_id),
+        (get_chamber_status(session, chamber_id=chamber_id), chamber_id),
+        (get_recipe_active(session, recipe_id=recipe_id), recipe_id),
         (get_part_stock(session, part_id=part_id), part_id),
-        (get_site_technician_count(session, site_id=site_id), site_id),
+        (get_maintenance_event_target(session, maintenance_event_id=event_id), event_id),
     ]
     for result, expected_id in checks:
         assert expected_id in result.source_object_ids
         assert len(result.source_object_ids) >= 1
 
 
-def test_get_work_order_technician_cites_both_when_assigned(seeded_session):
+def test_get_chamber_tool_cites_chamber_and_tool(seeded_session):
     session, graph = seeded_session
-    from ontology_agent.models import WorkOrder
-
-    assigned = next(
-        wo_id
-        for wo_id in graph.work_order_ids
-        if session.get(WorkOrder, wo_id).technician_id is not None
-    )
-    result = get_work_order_technician(session, work_order_id=assigned)
-    wo = session.get(WorkOrder, assigned)
-    assert result.source_object_ids == [wo.id, wo.technician_id]
-
-
-def test_get_asset_site_cites_asset_and_site(seeded_session):
-    session, graph = seeded_session
-    result = get_asset_site(session, asset_id=graph.asset_ids[0])
+    result = get_chamber_tool(session, chamber_id=graph.chamber_ids[0])
     assert len(result.source_object_ids) == 2
-    assert graph.asset_ids[0] in result.source_object_ids
+    assert graph.chamber_ids[0] in result.source_object_ids
+
+
+def test_get_recipe_chamber_cites_recipe_and_chamber(seeded_session):
+    session, graph = seeded_session
+    from ontology_agent.models import Recipe
+
+    recipe = session.get(Recipe, graph.recipe_ids[0])
+    result = get_recipe_chamber(session, recipe_id=recipe.id)
+    assert result.source_object_ids == [recipe.id, recipe.chamber_id]
+
+
+def test_get_maintenance_event_target_cites_event_and_actual_target(seeded_session):
+    session, graph = seeded_session
+    from ontology_agent.models import MaintenanceEvent
+
+    event = session.get(MaintenanceEvent, graph.maintenance_event_ids[0])
+    expected_target = event.tool_id if event.tool_id is not None else event.chamber_id
+    result = get_maintenance_event_target(session, maintenance_event_id=event.id)
+    assert result.source_object_ids == [event.id, expected_target]
 
 
 @pytest.mark.parametrize(
     "tool_name, kwargs",
     [
-        ("get_work_order_status", {"work_order_id": "WO-999999"}),
-        ("get_work_order_priority", {"work_order_id": "WO-999999"}),
-        ("get_work_order_technician", {"work_order_id": "WO-999999"}),
-        ("get_work_order_asset", {"work_order_id": "WO-999999"}),
-        ("get_asset_status", {"asset_id": "AST-99999"}),
-        ("get_asset_site", {"asset_id": "AST-99999"}),
-        ("get_technician_site", {"technician_id": "TCH-9999"}),
-        ("get_technician_active", {"technician_id": "TCH-9999"}),
-        ("list_open_work_orders_for_technician", {"technician_id": "TCH-9999"}),
+        ("get_tool_status", {"tool_id": "TL-9999"}),
+        ("get_tool_type", {"tool_id": "TL-9999"}),
+        ("get_chamber_status", {"chamber_id": "CH-99999"}),
+        ("get_chamber_tool", {"chamber_id": "CH-99999"}),
+        ("get_recipe_chamber", {"recipe_id": "RC-99999"}),
+        ("get_recipe_active", {"recipe_id": "RC-99999"}),
         ("get_part_stock", {"part_id": "PRT-9999"}),
-        ("get_site_technician_count", {"site_id": "STE-9999"}),
+        ("get_maintenance_event_status", {"maintenance_event_id": "ME-999999"}),
+        ("get_maintenance_event_target", {"maintenance_event_id": "ME-999999"}),
+        ("list_maintenance_events_for_chamber", {"chamber_id": "CH-99999"}),
+        ("list_chambers_for_tool", {"tool_id": "TL-9999"}),
     ],
 )
 def test_every_tool_refuses_on_missing_object_rather_than_guessing(
@@ -88,11 +91,11 @@ def test_every_tool_refuses_on_missing_object_rather_than_guessing(
         tool_fn(session, **kwargs)
 
 
-def test_part_usage_in_work_order_refuses_on_missing_part(seeded_session):
+def test_part_usage_in_maintenance_event_refuses_on_missing_part(seeded_session):
     session, graph = seeded_session
     with pytest.raises(ObjectNotFoundError):
-        get_part_usage_in_work_order(
-            session, work_order_id=graph.work_order_ids[0], part_id="PRT-9999"
+        get_part_usage_in_maintenance_event(
+            session, maintenance_event_id=graph.maintenance_event_ids[0], part_id="PRT-9999"
         )
 
 
@@ -100,31 +103,46 @@ def test_part_usage_returns_zero_not_a_guess_when_never_used(seeded_session):
     """Distinguishes a real, present-but-zero fact from a missing object:
     zero usage is a legitimate answer with a citation, not a refusal."""
     session, graph = seeded_session
-    from ontology_agent.models import WorkOrder, WorkOrderPart
+    from ontology_agent.models import MaintenanceEventPart
 
-    used_pairs = {(wop.work_order_id, wop.part_id) for wop in session.query(WorkOrderPart).all()}
+    used_pairs = {
+        (mep.maintenance_event_id, mep.part_id)
+        for mep in session.query(MaintenanceEventPart).all()
+    }
     never_used_pair = next(
-        (wo_id, part_id)
-        for wo_id in graph.work_order_ids
+        (event_id, part_id)
+        for event_id in graph.maintenance_event_ids
         for part_id in graph.part_ids
-        if (wo_id, part_id) not in used_pairs
+        if (event_id, part_id) not in used_pairs
     )
-    result = get_part_usage_in_work_order(
-        session, work_order_id=never_used_pair[0], part_id=never_used_pair[1]
+    result = get_part_usage_in_maintenance_event(
+        session, maintenance_event_id=never_used_pair[0], part_id=never_used_pair[1]
     )
     assert result.value == 0
     assert set(result.source_object_ids) == set(never_used_pair)
 
 
-def test_list_open_work_orders_cites_technician_and_every_open_work_order(seeded_session):
+def test_list_chambers_for_tool_cites_tool_and_every_chamber(seeded_session):
     session, graph = seeded_session
-    from ontology_agent.models import Technician
+    from ontology_agent.models import Tool
 
-    for tech_id in graph.technician_ids:
-        tech = session.get(Technician, tech_id)
-        result = list_open_work_orders_for_technician(session, technician_id=tech_id)
+    for tool_id in graph.tool_ids[:5]:
+        tool = session.get(Tool, tool_id)
+        result = list_chambers_for_tool(session, tool_id=tool_id)
+        expected = [c.id for c in tool.chambers]
+        assert result.value == expected
+        assert set(result.source_object_ids) == {tool_id, *expected}
+
+
+def test_list_maintenance_events_for_chamber_cites_only_open_events(seeded_session):
+    session, graph = seeded_session
+    from ontology_agent.models import Chamber
+
+    for chamber_id in graph.chamber_ids[:5]:
+        chamber = session.get(Chamber, chamber_id)
+        result = list_maintenance_events_for_chamber(session, chamber_id=chamber_id)
         expected_open = [
-            wo.id for wo in tech.work_orders if wo.status in ("open", "in_progress", "on_hold")
+            e.id for e in chamber.maintenance_events if e.status in ("scheduled", "in_progress")
         ]
         assert result.value == expected_open
-        assert set(result.source_object_ids) == {tech_id, *expected_open}
+        assert set(result.source_object_ids) == {chamber_id, *expected_open}

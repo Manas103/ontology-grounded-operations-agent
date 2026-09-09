@@ -7,7 +7,7 @@ built on a typed, indexed object model. A person doing the same lookup by
 hand against an unindexed source (a spreadsheet export, a printed report,
 a screen with no search box) has no index to use: finding a record by id
 costs one comparison per row until a match turns up, and confirming a
-record does *not* exist, which is exactly what the 74 refusal-designed
+record does *not* exist, which is exactly what the refusal-designed
 questions require, costs a comparison against every row in the table,
 because there is no way to know a row is missing without checking all of
 them.
@@ -15,22 +15,17 @@ them.
 This module reimplements each of the 12 tools in `tools.py` one for one,
 same inputs, same outputs, same citation contract, with every
 `Session.get` replaced by a linear scan over a plain Python list and every
-ORM relationship access (`tech.work_orders`, `site.technicians`) replaced
-by a full-table filter. It does not touch the ORM at all after the initial
-one-time load; that load stands in for a person already having the report
-in front of them; what is timed is the lookup, not the export.
+ORM relationship access (`tool.chambers`, `chamber.maintenance_events`)
+replaced by a full-table filter. It does not touch the ORM at all after
+the initial one-time load; that load stands in for a person already
+having the report in front of them; what is timed is the lookup, not the
+export.
 
 One deliberate, disclosed simplification: routing (deciding which of the
 12 lookups a question requires, and pulling the typed ids out of the
 question text) is shared with the assistant path (`qa_router.route_question`)
-rather than reimplemented here. A human reading "What priority level is
-assigned to work order WO-000123?" and a typed-tool router both parse that
-sentence the same way; the thing the assistant is actually claimed to be
-faster at is looking the record up once it knows what to look up, so the
-harness isolates exactly that and does not also charge the manual path for
-re-deriving something neither path actually struggles with. See README,
-Measured results, for why this is a disclosed proxy for manual effort and
-not a live user study.
+rather than reimplemented here. See README, Measured results, for why
+this is a disclosed proxy for manual effort and not a live user study.
 """
 from __future__ import annotations
 
@@ -39,7 +34,7 @@ from typing import Callable
 
 from sqlalchemy.orm import Session
 
-from ontology_agent.models import Asset, Part, Site, Technician, WorkOrder, WorkOrderPart
+from ontology_agent.models import Chamber, MaintenanceEvent, MaintenanceEventPart, Part, Recipe, Tool
 
 
 class ManualNotFoundError(Exception):
@@ -88,13 +83,12 @@ class ManualRow:
     report column set would realistically carry, not the full ORM row."""
 
     id: str
-    site_id: str | None = None
-    technician_id: str | None = None
-    asset_id: str | None = None
+    tool_id: str | None = None
+    chamber_id: str | None = None
     part_id: str | None = None
     status: str | None = None
-    priority: str | None = None
-    active: bool | None = None
+    kind: str | None = None
+    is_active: bool | None = None
     stock_qty: int | None = None
     qty_used: int | None = None
 
@@ -108,36 +102,38 @@ class ManualTables:
     the real tool catalog assume the database is already up and reachable.
     """
 
-    sites: list[ManualRow]
-    technicians: list[ManualRow]
-    assets: list[ManualRow]
+    tools: list[ManualRow]
+    chambers: list[ManualRow]
+    recipes: list[ManualRow]
     parts: list[ManualRow]
-    work_orders: list[ManualRow]
-    work_order_parts: list[ManualRow]
+    maintenance_events: list[ManualRow]
+    maintenance_event_parts: list[ManualRow]
 
 
 def load_manual_tables(session: Session) -> ManualTables:
     """One-time, untimed export of every row into flat, unindexed lists."""
-    sites = [ManualRow(id=s.id) for s in session.query(Site).all()]
-    technicians = [
-        ManualRow(id=t.id, site_id=t.site_id, active=t.active)
-        for t in session.query(Technician).all()
+    tools = [ManualRow(id=t.id, status=t.status, kind=t.tool_type) for t in session.query(Tool).all()]
+    chambers = [
+        ManualRow(id=c.id, tool_id=c.tool_id, status=c.status)
+        for c in session.query(Chamber).all()
     ]
-    assets = [ManualRow(id=a.id, site_id=a.site_id, status=a.status) for a in session.query(Asset).all()]
+    recipes = [
+        ManualRow(id=r.id, chamber_id=r.chamber_id, is_active=r.is_active)
+        for r in session.query(Recipe).all()
+    ]
     parts = [ManualRow(id=p.id, stock_qty=p.stock_qty) for p in session.query(Part).all()]
-    work_orders = [
-        ManualRow(id=w.id, asset_id=w.asset_id, technician_id=w.technician_id,
-                   status=w.status, priority=w.priority)
-        for w in session.query(WorkOrder).all()
+    maintenance_events = [
+        ManualRow(id=m.id, tool_id=m.tool_id, chamber_id=m.chamber_id, status=m.status)
+        for m in session.query(MaintenanceEvent).all()
     ]
-    work_order_parts = [
-        ManualRow(id=f"{wop.work_order_id}:{wop.part_id}", asset_id=wop.work_order_id,
-                   part_id=wop.part_id, qty_used=wop.qty_used)
-        for wop in session.query(WorkOrderPart).all()
+    maintenance_event_parts = [
+        ManualRow(id=f"{mep.maintenance_event_id}:{mep.part_id}", tool_id=mep.maintenance_event_id,
+                   part_id=mep.part_id, qty_used=mep.qty_used)
+        for mep in session.query(MaintenanceEventPart).all()
     ]
     return ManualTables(
-        sites=sites, technicians=technicians, assets=assets, parts=parts,
-        work_orders=work_orders, work_order_parts=work_order_parts,
+        tools=tools, chambers=chambers, recipes=recipes, parts=parts,
+        maintenance_events=maintenance_events, maintenance_event_parts=maintenance_event_parts,
     )
 
 
@@ -161,46 +157,34 @@ def _require(rows: list[ManualRow], target_id: str, object_type: str, stats: Sca
     return row
 
 
-def manual_get_work_order_status(tables: ManualTables, stats: ScanStats, work_order_id: str) -> ManualResult:
-    wo = _require(tables.work_orders, work_order_id, "work_order", stats)
-    return ManualResult(value=wo.status, source_object_ids=[wo.id])
+def manual_get_tool_status(tables: ManualTables, stats: ScanStats, tool_id: str) -> ManualResult:
+    tool = _require(tables.tools, tool_id, "tool", stats)
+    return ManualResult(value=tool.status, source_object_ids=[tool.id])
 
 
-def manual_get_work_order_priority(tables: ManualTables, stats: ScanStats, work_order_id: str) -> ManualResult:
-    wo = _require(tables.work_orders, work_order_id, "work_order", stats)
-    return ManualResult(value=wo.priority, source_object_ids=[wo.id])
+def manual_get_tool_type(tables: ManualTables, stats: ScanStats, tool_id: str) -> ManualResult:
+    tool = _require(tables.tools, tool_id, "tool", stats)
+    return ManualResult(value=tool.kind, source_object_ids=[tool.id])
 
 
-def manual_get_work_order_technician(tables: ManualTables, stats: ScanStats, work_order_id: str) -> ManualResult:
-    wo = _require(tables.work_orders, work_order_id, "work_order", stats)
-    if wo.technician_id is None:
-        return ManualResult(value=None, source_object_ids=[wo.id])
-    return ManualResult(value=wo.technician_id, source_object_ids=[wo.id, wo.technician_id])
+def manual_get_chamber_status(tables: ManualTables, stats: ScanStats, chamber_id: str) -> ManualResult:
+    chamber = _require(tables.chambers, chamber_id, "chamber", stats)
+    return ManualResult(value=chamber.status, source_object_ids=[chamber.id])
 
 
-def manual_get_work_order_asset(tables: ManualTables, stats: ScanStats, work_order_id: str) -> ManualResult:
-    wo = _require(tables.work_orders, work_order_id, "work_order", stats)
-    return ManualResult(value=wo.asset_id, source_object_ids=[wo.id, wo.asset_id])
+def manual_get_chamber_tool(tables: ManualTables, stats: ScanStats, chamber_id: str) -> ManualResult:
+    chamber = _require(tables.chambers, chamber_id, "chamber", stats)
+    return ManualResult(value=chamber.tool_id, source_object_ids=[chamber.id, chamber.tool_id])
 
 
-def manual_get_asset_status(tables: ManualTables, stats: ScanStats, asset_id: str) -> ManualResult:
-    asset = _require(tables.assets, asset_id, "asset", stats)
-    return ManualResult(value=asset.status, source_object_ids=[asset.id])
+def manual_get_recipe_chamber(tables: ManualTables, stats: ScanStats, recipe_id: str) -> ManualResult:
+    recipe = _require(tables.recipes, recipe_id, "recipe", stats)
+    return ManualResult(value=recipe.chamber_id, source_object_ids=[recipe.id, recipe.chamber_id])
 
 
-def manual_get_asset_site(tables: ManualTables, stats: ScanStats, asset_id: str) -> ManualResult:
-    asset = _require(tables.assets, asset_id, "asset", stats)
-    return ManualResult(value=asset.site_id, source_object_ids=[asset.id, asset.site_id])
-
-
-def manual_get_technician_site(tables: ManualTables, stats: ScanStats, technician_id: str) -> ManualResult:
-    tech = _require(tables.technicians, technician_id, "technician", stats)
-    return ManualResult(value=tech.site_id, source_object_ids=[tech.id, tech.site_id])
-
-
-def manual_get_technician_active(tables: ManualTables, stats: ScanStats, technician_id: str) -> ManualResult:
-    tech = _require(tables.technicians, technician_id, "technician", stats)
-    return ManualResult(value=tech.active, source_object_ids=[tech.id])
+def manual_get_recipe_active(tables: ManualTables, stats: ScanStats, recipe_id: str) -> ManualResult:
+    recipe = _require(tables.recipes, recipe_id, "recipe", stats)
+    return ManualResult(value=recipe.is_active, source_object_ids=[recipe.id])
 
 
 def manual_get_part_stock(tables: ManualTables, stats: ScanStats, part_id: str) -> ManualResult:
@@ -208,58 +192,73 @@ def manual_get_part_stock(tables: ManualTables, stats: ScanStats, part_id: str) 
     return ManualResult(value=part.stock_qty, source_object_ids=[part.id])
 
 
-def manual_list_open_work_orders_for_technician(
-    tables: ManualTables, stats: ScanStats, technician_id: str
+def manual_get_maintenance_event_status(
+    tables: ManualTables, stats: ScanStats, maintenance_event_id: str
 ) -> ManualResult:
-    tech = _require(tables.technicians, technician_id, "technician", stats)
+    event = _require(tables.maintenance_events, maintenance_event_id, "maintenance_event", stats)
+    return ManualResult(value=event.status, source_object_ids=[event.id])
+
+
+def manual_get_maintenance_event_target(
+    tables: ManualTables, stats: ScanStats, maintenance_event_id: str
+) -> ManualResult:
+    event = _require(tables.maintenance_events, maintenance_event_id, "maintenance_event", stats)
+    target_id = event.tool_id if event.tool_id is not None else event.chamber_id
+    return ManualResult(value=target_id, source_object_ids=[event.id, target_id])
+
+
+def manual_list_maintenance_events_for_chamber(
+    tables: ManualTables, stats: ScanStats, chamber_id: str
+) -> ManualResult:
+    chamber = _require(tables.chambers, chamber_id, "chamber", stats)
     open_ids = []
-    for wo in tables.work_orders:
+    for event in tables.maintenance_events:
         stats.comparisons += 1
-        if wo.technician_id == tech.id and wo.status in ("open", "in_progress", "on_hold"):
-            open_ids.append(wo.id)
+        if event.chamber_id == chamber.id and event.status in ("scheduled", "in_progress"):
+            open_ids.append(event.id)
     stats.tables_scanned += 1
-    return ManualResult(value=open_ids, source_object_ids=[tech.id, *open_ids])
+    return ManualResult(value=open_ids, source_object_ids=[chamber.id, *open_ids])
 
 
-def manual_get_part_usage_in_work_order(
-    tables: ManualTables, stats: ScanStats, work_order_id: str, part_id: str
+def manual_get_part_usage_in_maintenance_event(
+    tables: ManualTables, stats: ScanStats, maintenance_event_id: str, part_id: str
 ) -> ManualResult:
-    wo = _require(tables.work_orders, work_order_id, "work_order", stats)
+    event = _require(tables.maintenance_events, maintenance_event_id, "maintenance_event", stats)
     part = _require(tables.parts, part_id, "part", stats)
     qty = 0
-    for link in tables.work_order_parts:
+    for link in tables.maintenance_event_parts:
         stats.comparisons += 1
-        if link.asset_id == wo.id and link.part_id == part.id:
+        if link.tool_id == event.id and link.part_id == part.id:
             qty = link.qty_used
             break
     stats.tables_scanned += 1
-    return ManualResult(value=qty, source_object_ids=[wo.id, part.id])
+    return ManualResult(value=qty, source_object_ids=[event.id, part.id])
 
 
-def manual_get_site_technician_count(tables: ManualTables, stats: ScanStats, site_id: str) -> ManualResult:
-    site = _require(tables.sites, site_id, "site", stats)
-    count = 0
-    for tech in tables.technicians:
+def manual_list_chambers_for_tool(tables: ManualTables, stats: ScanStats, tool_id: str) -> ManualResult:
+    tool = _require(tables.tools, tool_id, "tool", stats)
+    chamber_ids = []
+    for chamber in tables.chambers:
         stats.comparisons += 1
-        if tech.site_id == site.id:
-            count += 1
+        if chamber.tool_id == tool.id:
+            chamber_ids.append(chamber.id)
     stats.tables_scanned += 1
-    return ManualResult(value=count, source_object_ids=[site.id])
+    return ManualResult(value=chamber_ids, source_object_ids=[tool.id, *chamber_ids])
 
 
 MANUAL_TOOL_CATALOG: dict[str, Callable[..., ManualResult]] = {
-    "get_work_order_status": manual_get_work_order_status,
-    "get_work_order_priority": manual_get_work_order_priority,
-    "get_work_order_technician": manual_get_work_order_technician,
-    "get_work_order_asset": manual_get_work_order_asset,
-    "get_asset_status": manual_get_asset_status,
-    "get_asset_site": manual_get_asset_site,
-    "get_technician_site": manual_get_technician_site,
-    "get_technician_active": manual_get_technician_active,
+    "get_tool_status": manual_get_tool_status,
+    "get_tool_type": manual_get_tool_type,
+    "get_chamber_status": manual_get_chamber_status,
+    "get_chamber_tool": manual_get_chamber_tool,
+    "get_recipe_chamber": manual_get_recipe_chamber,
+    "get_recipe_active": manual_get_recipe_active,
     "get_part_stock": manual_get_part_stock,
-    "list_open_work_orders_for_technician": manual_list_open_work_orders_for_technician,
-    "get_part_usage_in_work_order": manual_get_part_usage_in_work_order,
-    "get_site_technician_count": manual_get_site_technician_count,
+    "get_maintenance_event_status": manual_get_maintenance_event_status,
+    "get_maintenance_event_target": manual_get_maintenance_event_target,
+    "list_maintenance_events_for_chamber": manual_list_maintenance_events_for_chamber,
+    "get_part_usage_in_maintenance_event": manual_get_part_usage_in_maintenance_event,
+    "list_chambers_for_tool": manual_list_chambers_for_tool,
 }
 
 

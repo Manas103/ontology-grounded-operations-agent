@@ -8,6 +8,11 @@ without passing this gate first. The schemas use `additionalProperties:
 false`, explicit `required`, explicit `enum`s, and id patterns, so
 "schema-invalid" has one unambiguous meaning: `jsonschema.validate`
 raised.
+
+Five equipment-domain action types: scheduling a maintenance event on a
+tool or a chamber, retiring a part, updating a recipe's process
+parameters, flagging a chamber for service, and recording part usage on a
+maintenance event.
 """
 from __future__ import annotations
 
@@ -15,78 +20,86 @@ import dataclasses
 
 import jsonschema
 
-WORK_ORDER_ID_PATTERN = r"^WO-\d{6}$"
-ASSET_ID_PATTERN = r"^AST-\d{5}$"
-TECHNICIAN_ID_PATTERN = r"^TCH-\d{4}$"
+TOOL_ID_PATTERN = r"^TL-\d{4}$"
+CHAMBER_ID_PATTERN = r"^CH-\d{5}$"
+RECIPE_ID_PATTERN = r"^RC-\d{5}$"
 PART_ID_PATTERN = r"^PRT-\d{4}$"
+MAINTENANCE_EVENT_ID_PATTERN = r"^ME-\d{6}$"
+# A schedule_maintenance target is either a tool or a chamber id.
+TARGET_ID_PATTERN = r"^(TL-\d{4}|CH-\d{5})$"
 
-_ASSET_STATUSES = ["operational", "degraded", "down", "decommissioned"]
+_TARGET_TYPES = ["tool", "chamber"]
+_MAINTENANCE_TYPES = ["preventive", "corrective", "calibration", "inspection"]
+_SEVERITIES = ["low", "medium", "high", "critical"]
+_RECIPE_PARAMETERS = ["temperature_c", "pressure_mtorr", "gas_flow_sccm", "rf_power_w"]
 
-CLOSE_WORK_ORDER_SCHEMA = {
+SCHEDULE_MAINTENANCE_SCHEMA = {
     "type": "object",
     "properties": {
-        "action_type": {"const": "close_work_order"},
-        "work_order_id": {"type": "string", "pattern": WORK_ORDER_ID_PATTERN},
-        "closed_by_technician_id": {"type": "string", "pattern": TECHNICIAN_ID_PATTERN},
-        "resolution_notes": {"type": "string", "minLength": 1, "maxLength": 2000},
+        "action_type": {"const": "schedule_maintenance"},
+        "target_type": {"type": "string", "enum": _TARGET_TYPES},
+        "target_id": {"type": "string", "pattern": TARGET_ID_PATTERN},
+        "maintenance_type": {"type": "string", "enum": _MAINTENANCE_TYPES},
+        "notes": {"type": "string", "minLength": 1, "maxLength": 2000},
     },
-    "required": ["action_type", "work_order_id", "closed_by_technician_id", "resolution_notes"],
+    "required": ["action_type", "target_type", "target_id", "maintenance_type", "notes"],
     "additionalProperties": False,
 }
 
-REASSIGN_TECHNICIAN_SCHEMA = {
+RETIRE_PART_SCHEMA = {
     "type": "object",
     "properties": {
-        "action_type": {"const": "reassign_technician"},
-        "work_order_id": {"type": "string", "pattern": WORK_ORDER_ID_PATTERN},
-        "new_technician_id": {"type": "string", "pattern": TECHNICIAN_ID_PATTERN},
+        "action_type": {"const": "retire_part"},
+        "part_id": {"type": "string", "pattern": PART_ID_PATTERN},
         "reason": {"type": "string", "minLength": 1, "maxLength": 500},
     },
-    "required": ["action_type", "work_order_id", "new_technician_id", "reason"],
+    "required": ["action_type", "part_id", "reason"],
     "additionalProperties": False,
 }
 
-REOPEN_WORK_ORDER_SCHEMA = {
+UPDATE_RECIPE_PARAMETERS_SCHEMA = {
     "type": "object",
     "properties": {
-        "action_type": {"const": "reopen_work_order"},
-        "work_order_id": {"type": "string", "pattern": WORK_ORDER_ID_PATTERN},
+        "action_type": {"const": "update_recipe_parameters"},
+        "recipe_id": {"type": "string", "pattern": RECIPE_ID_PATTERN},
+        "parameter_name": {"type": "string", "enum": _RECIPE_PARAMETERS},
+        "new_value": {"type": "number"},
         "reason": {"type": "string", "minLength": 1, "maxLength": 500},
     },
-    "required": ["action_type", "work_order_id", "reason"],
+    "required": ["action_type", "recipe_id", "parameter_name", "new_value", "reason"],
     "additionalProperties": False,
 }
 
-UPDATE_ASSET_STATUS_SCHEMA = {
+FLAG_CHAMBER_FOR_SERVICE_SCHEMA = {
     "type": "object",
     "properties": {
-        "action_type": {"const": "update_asset_status"},
-        "asset_id": {"type": "string", "pattern": ASSET_ID_PATTERN},
-        "new_status": {"type": "string", "enum": _ASSET_STATUSES},
+        "action_type": {"const": "flag_chamber_for_service"},
+        "chamber_id": {"type": "string", "pattern": CHAMBER_ID_PATTERN},
+        "severity": {"type": "string", "enum": _SEVERITIES},
         "reason": {"type": "string", "minLength": 1, "maxLength": 500},
     },
-    "required": ["action_type", "asset_id", "new_status", "reason"],
+    "required": ["action_type", "chamber_id", "severity", "reason"],
     "additionalProperties": False,
 }
 
 RECORD_PART_USAGE_SCHEMA = {
     "type": "object",
     "properties": {
-        "action_type": {"const": "record_part_usage"},
-        "work_order_id": {"type": "string", "pattern": WORK_ORDER_ID_PATTERN},
+        "action_type": {"const": "record_part_usage_in_maintenance_event"},
+        "maintenance_event_id": {"type": "string", "pattern": MAINTENANCE_EVENT_ID_PATTERN},
         "part_id": {"type": "string", "pattern": PART_ID_PATTERN},
         "qty_used": {"type": "integer", "minimum": 1, "maximum": 1000},
     },
-    "required": ["action_type", "work_order_id", "part_id", "qty_used"],
+    "required": ["action_type", "maintenance_event_id", "part_id", "qty_used"],
     "additionalProperties": False,
 }
 
 ACTION_SCHEMAS: dict[str, dict] = {
-    "close_work_order": CLOSE_WORK_ORDER_SCHEMA,
-    "reassign_technician": REASSIGN_TECHNICIAN_SCHEMA,
-    "reopen_work_order": REOPEN_WORK_ORDER_SCHEMA,
-    "update_asset_status": UPDATE_ASSET_STATUS_SCHEMA,
-    "record_part_usage": RECORD_PART_USAGE_SCHEMA,
+    "schedule_maintenance": SCHEDULE_MAINTENANCE_SCHEMA,
+    "retire_part": RETIRE_PART_SCHEMA,
+    "update_recipe_parameters": UPDATE_RECIPE_PARAMETERS_SCHEMA,
+    "flag_chamber_for_service": FLAG_CHAMBER_FOR_SERVICE_SCHEMA,
+    "record_part_usage_in_maintenance_event": RECORD_PART_USAGE_SCHEMA,
 }
 
 

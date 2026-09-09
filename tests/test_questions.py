@@ -5,18 +5,18 @@ from ontology_agent.questions import REFUSAL_TOTAL, build_question_set
 
 def test_holdout_objects_are_created_then_deleted(seeded_session_with_holdout):
     session, graph, removed_ids = seeded_session_with_holdout
-    from ontology_agent.models import Asset, Part, Site, Technician, WorkOrder
+    from ontology_agent.models import Chamber, MaintenanceEvent, Part, Recipe, Tool
 
-    for site_id in removed_ids["site_id"]:
-        assert session.get(Site, site_id) is None
-    for tech_id in removed_ids["technician_id"]:
-        assert session.get(Technician, tech_id) is None
-    for asset_id in removed_ids["asset_id"]:
-        assert session.get(Asset, asset_id) is None
+    for tool_id in removed_ids["tool_id"]:
+        assert session.get(Tool, tool_id) is None
+    for chamber_id in removed_ids["chamber_id"]:
+        assert session.get(Chamber, chamber_id) is None
+    for recipe_id in removed_ids["recipe_id"]:
+        assert session.get(Recipe, recipe_id) is None
     for part_id in removed_ids["part_id"]:
         assert session.get(Part, part_id) is None
-    for wo_id in removed_ids["work_order_id"]:
-        assert session.get(WorkOrder, wo_id) is None
+    for event_id in removed_ids["maintenance_event_id"]:
+        assert session.get(MaintenanceEvent, event_id) is None
 
 
 def test_question_set_has_over_300_questions_with_exactly_74_refusal(
