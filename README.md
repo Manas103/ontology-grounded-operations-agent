@@ -1,81 +1,132 @@
-# Equipment Knowledge Assistant with Cited Tool Calls and an Approval Gate
+# Governed Tool-Use Agents with Cited Answers and a Human Gate, Across Two Domains
 
-A fab-equipment operations agent that can only read the world through a typed object model and can only change the world by proposing a schema-validated action a human approves, extended with a value harness that scores the assistant against a manual-equivalent baseline on the same held-out question set. It never answers from general knowledge and never writes to the store on its own. Every number below was measured on this machine, not targeted: the 386-question benchmark, the 500-proposal action-validation benchmark, and the value harness are all deterministic and reproducible run to run, and the live-LLM section reports the exact count of real `claude -p` subprocess calls made, not an estimate.
+Two domains, one architectural pattern: an agent that can only read the world through a fixed catalog of typed tools, each returning the object ids its answer came from, and can only change the world by proposing a schema-validated action a human must explicitly approve or confirm before it ever executes. The fab-equipment layer (tools, chambers, recipes, parts, maintenance events) was built first, then extended for Tokyo Electron; the clinical layer (Patient, Encounter, Condition, Observation, MedicationRequest, Procedure, loaded from real Synthea-generated FHIR R4 data) was added for the Abridge role, reusing the same pattern on a genuinely different domain instead of replacing the equipment tables the way the Tokyo Electron extension replaced the original flat asset registry. Every number below was measured on this machine, not targeted: the deterministic benchmarks (386 equipment questions, 500 equipment action proposals, 300 clinical questions, 240 clinical write proposals, 120 out-of-scope requests) are reproducible run to run, and both live-LLM sections report the exact count of real `claude -p` subprocess calls made, not an estimate.
 
-**This repo started as a general field-equipment maintenance operations agent (sites, technicians, assets, parts, work orders) and was extended for the Tokyo Electron role** into a semiconductor-fab equipment domain: tools, chambers, recipes, parts, and maintenance events. Findings below covers both phases; the extension section is explicit about what was rebuilt and what carried over unchanged.
+**This repo started as a general field-equipment maintenance operations agent (sites, technicians, assets, parts, work orders), was extended for the Tokyo Electron role** into a semiconductor-fab equipment domain, **and was extended again for the Abridge role** with a second, coexisting clinical domain. See "Two domains, one pattern" below for why the clinical layer sits beside the equipment layer instead of replacing it, and Findings for what each extension actually changed.
 
 ## Why this exists
 
-This is a small version of an enterprise operations copilot bound to an ontology: a typed object model (tools, chambers, recipes, parts, maintenance events) that an LLM or a deterministic router can query only through a fixed set of named tools, and can only mutate through a fixed set of schema-defined action proposals that sit in a human approval queue until someone decides on them. It is the shape Palantir's own AIP material describes (a model bound to an ontology, acting only through governed actions), built small enough to measure honestly: a real typed store, a real JSON Schema validation gate, a real held-out question set with a real refusal mechanism, and a real (not mocked) call to an LLM CLI on a sample of that question set.
+This is a small version of an enterprise operations copilot bound to an ontology: a typed object model that an LLM or a deterministic router can query only through a fixed set of named tools, and can only mutate through a fixed set of schema-defined action proposals that sit in a human gate until someone decides on them. It is the shape Palantir's own AIP material describes (a model bound to an ontology, acting only through governed actions), built small enough to measure honestly: a real typed store, a real JSON Schema validation gate, a real held-out question set with a real refusal mechanism, and a real (not mocked) call to an LLM on a sample of that question set.
 
-Correctness, exact citations, and disciplined refusals prove the assistant does not get things wrong. They do not prove it is worth more than a person doing the same lookup by hand, which is a different, and separately measured, question. The value harness (`ontology_agent/manual_baseline.py`, `scripts/run_value_harness.py`) exists to close that gap: it answers the same 386-question held-out set through linear scans and manual joins over the same seeded data, with no index and no shortcut, and reports the assistant's advantage as a measured number rather than an assumed one.
+The equipment layer applies this to fab maintenance. The clinical layer applies the identical pattern to a chart-agent shape: a clinician asks a typed question answered only through 11 named tools over real Synthea-generated FHIR R4 patients, and an order-placing or note-editing intent is never executed, it is held as a JSON-Schema-validated proposal behind a write-confirmation boundary until a human confirms it. A third property, measured only on the clinical layer, is scope refusal: a request for a tool or action name outside the declared catalog (hallucinated, near-miss, or adversarial) is refused before anything is ever called, independent of whether the object it names exists.
+
+Correctness, exact citations, and disciplined refusals prove the assistant does not get things wrong. On the equipment layer they do not prove it is worth more than a person doing the same lookup by hand, which is a different, and separately measured, question. The value harness (`ontology_agent/manual_baseline.py`, `scripts/run_value_harness.py`) exists to close that gap: it answers the same 386-question held-out set through linear scans and manual joins over the same seeded data, with no index and no shortcut, and reports the assistant's advantage as a measured number rather than an assumed one. The clinical layer does not repeat the value harness; its own measured claim is the write-confirmation boundary and the scope guard, not manual-effort savings.
 
 ## Honest framing
 
-- **What this is not.** Not a general database chat agent that can run arbitrary SQL; the read surface is a fixed dictionary of twelve named functions (`ontology_agent/tools.py`), each with typed parameters, each returning the object ids the answer came from. Not an autonomous actuator; nothing in `approval.py` ever mutates `models.py` on its own, `decide()` only records a human's yes or no.
-- **Synthetic data, stated as synthetic.** All tools, chambers, recipes, parts, and maintenance events are generated by a seeded random process in `ontology_agent/seed.py` (`DEFAULT_SEED = 20260724`, 40 tools, chambers/recipes/parts generated per tool, 420 maintenance events). No real fab equipment, no real tool models.
-- **Two LLM backends, and only one of them is free to run at scale.** `DeterministicToolRouterClient` (a regex marker-phrase router, no network call) is the client used for the 386-question benchmark, because a benchmark that size needs to be exactly reproducible to be trustworthy. `ClaudeCLIClient` shells out to the real `claude` CLI as a genuine subprocess and is exercised on a smaller, explicitly-counted sample; see Validation below for exactly how many real calls were made and what they measured. This split, and the discipline of never letting a real-LLM claim outrun a real-LLM call, exists specifically to avoid the flaw on record against this portfolio's `guarded-instruction-validation` repo, whose real LLM client was implemented but never actually exercised before its numbers were written down.
-- **Machine and toolchain, exactly as measured.** 8 physical / 16 logical cores, Windows 11 Home (build 10.0.26200), native Windows Python (no WSL needed, this is a pure-Python repo), Python 3.12.10, SQLAlchemy 2.0.52, jsonschema 4.26.0, pytest 9.1.1, psycopg2-binary 2.9.12, `claude` CLI 2.1.241. PostgreSQL is not installed as a service on this machine; `db.py` falls back to a real on-disk SQLite database, and `tests/test_postgres_backend.py` skips cleanly (not silently) when Postgres is unreachable.
-- **The live LLM was genuinely exercised, not merely implemented.** `scripts/run_live_llm_sample.py` made 20 real `claude -p "<prompt>"` subprocess calls (not mocked) against 15 answerable and 5 refusal-designed questions drawn from the same question set the full benchmark uses. Raw, unedited output is committed at `docs/live_llm_sample_output.txt`.
-- **The value harness is a disclosed, measured proxy for manual effort, not a live user study.** No human was timed. `manual_baseline.py` answers the identical 386 questions through linear scans and manual joins over the same seeded data (no primary-key index, no ORM identity map, no shortcut), and both the operation counts and the wall-clock time of doing so are real, measured numbers from this machine, reported as exactly that: a stand-in for manual effort, not a substitute for one.
+- **What this is not, on either domain.** Not a general database chat agent that can run arbitrary SQL. The equipment read surface is twelve named functions (`ontology_agent/tools.py`); the clinical read surface is eleven (`ontology_agent/clinical_tools.py`); each takes typed parameters and returns the object ids the answer came from. Not an autonomous actuator on either domain: nothing in `approval.py` or `clinical_approval.py` ever mutates `models.py` or `clinical_models.py` on its own; `decide()` and `execute()` only record a human's decision, they never perform the write.
+- **Synthetic data on the equipment side, real-tool-generated synthetic data on the clinical side.** Tools, chambers, recipes, parts, and maintenance events are generated by a seeded random process in `ontology_agent/seed.py` (`DEFAULT_SEED = 20260724`). The clinical layer's patients are not hand-seeded: they are the real output of Synthea (`synthea-with-dependencies.jar`, the project's own patient-generator tool, downloaded from its GitHub releases, not written by this project), a population of 1,000 run with a fixed seed (`-s 20261017 -p 1000`), which actually produced 1,120 generated patients (1,000 alive, 120 simulated deaths that Synthea backfills to hold the population at the requested size); this project loads the 1,000 alive patients. No real patients, no real clinicians, no real health system; Synthea's own generator modules (not this project) decide what conditions, encounters, and medications a synthetic patient accumulates over a simulated lifetime.
+- **Two LLM backends on each domain, and only one of them is free to run at scale.** On the equipment side, `DeterministicToolRouterClient` (a regex marker-phrase router) is the client used for the 386-question benchmark; `ClaudeCLIClient` shells out to the real `claude` CLI and is exercised on a smaller, explicitly-counted sample. The clinical side keeps the same split but inside a compiled LangGraph graph (`clinical_langgraph_agent.build_clinical_agent_graph`): `deterministic_tool_chooser` (wraps the regex router in `clinical_qa_router.py`) is what the full 300-question benchmark runs on; `claude_cli_tool_chooser` shells out to the same real `claude` CLI and is exercised on the same kind of small, explicitly-counted sample. This split, and the discipline of never letting a real-LLM claim outrun a real-LLM call, exists specifically to avoid the flaw on record against this portfolio's `guarded-instruction-validation` repo, whose real LLM client was implemented but never actually exercised before its numbers were written down.
+- **FHIR R4 validation uses two different, both-real tools, and they check different things.** Every one of the six clinical resource types this project loads is parsed through `fhir.resources.R4B` (a Pydantic structural model) at ingestion time, over the full 1,000-patient load; `fhir.resources`'s pydantic-v2-compatible releases ship R4B (FHIR 4.3.0), not a dedicated R4 (4.0.1) module, and R4B is schema-stable with R4 for these six resource types, which is a disclosed, practical substitution for per-record validation at this scale, not a claim of exact R4 identity. Separately, the real HAPI FHIR `validator_cli.jar` (the actual HL7-maintained R4 validator, `-version 4.0.1`) was run against a disclosed 25-patient sample of the genuine Synthea output, the authoritative check this project does not run at full scale because a single file's full validation (base FHIR plus the US Core profiles Synthea's own `meta.profile` declarations request) took several seconds to several tens of seconds per patient; see Validation and Findings below for what it found.
+- **Machine and toolchain, exactly as measured.** 8 physical / 16 logical cores, Windows 11 Home (build 10.0.26200), native Windows Python (no WSL needed for the Python side of either domain; Synthea and the HAPI validator are both plain JDK 21 jars run directly on Windows), Python 3.12.10, SQLAlchemy 2.0.52, jsonschema 4.26.0, pytest 9.1.1, psycopg2-binary 2.9.12, `fhir.resources` 7.1.0, `langgraph` 1.2.16, `claude` CLI 2.1.302, Synthea `synthea-with-dependencies.jar` (master-branch-latest release), HAPI FHIR `org.hl7.fhir.core` validator_cli 7.0.2. PostgreSQL is not installed as a service on this machine; `db.py` falls back to a real on-disk SQLite database (shared by both domains' tables), and `tests/test_postgres_backend.py` skips cleanly (not silently) when Postgres is unreachable.
+- **The live LLM was genuinely exercised on both domains, not merely implemented.** `scripts/run_live_llm_sample.py` made 20 real `claude -p "<prompt>"` subprocess calls against the equipment question set; `scripts/run_clinical_langgraph_live_sample.py` made another 20 real `claude -p` calls, routed through the compiled LangGraph graph, against 15 answerable and 5 refusal-designed clinical questions. Raw, unedited output for both is committed under `docs/`.
+- **The value harness is equipment-only.** `manual_baseline.py` and the "assistant vs. manual lookup" comparison exist only for the equipment domain; the clinical layer's claims are about citation correctness, the write-confirmation boundary, and scope refusal, not manual-effort savings, so it does not repeat a harness measuring a different thing.
 
 ## Architecture
 
 ```
 ontology_agent/
+  # --- equipment domain (original + Tokyo Electron extension) ---
   models.py           five typed SQLAlchemy tables (Tool, Chamber, Recipe, Part,
                        MaintenanceEvent, MaintenanceEventPart) with foreign keys and CHECK
-                       constraints; the only schema. A tool has many chambers; a chamber runs
-                       recipes; a maintenance event targets a tool or a chamber and consumes parts.
+                       constraints. A tool has many chambers; a chamber runs recipes; a
+                       maintenance event targets a tool or a chamber and consumes parts.
   db.py                engine/session setup; real Postgres if OPERATIONS_AGENT_DATABASE_URL
-                       points at one and is reachable, else a real on-disk SQLite fallback
+                       points at one and is reachable, else a real on-disk SQLite fallback;
+                       imports clinical_models so Base.metadata covers both domains
   seed.py              seeded synthetic data generator (40 tools, chambers/recipes/parts per
                        tool, 420 maintenance events); same seed always produces the same object graph
-  tools.py             the entire read surface: 12 named, typed functions, each returning a
+  tools.py             the equipment read surface: 12 named, typed functions, each returning a
                        ToolResult with mandatory source_object_ids; raises ObjectNotFoundError
                        rather than a null-shaped answer when the referenced object is missing
-  qa_router.py         deterministic marker-phrase router: matches question text to one of the
-                       12 tools and extracts typed ids by prefix; raises rather than guessing
-                       when nothing matches; the primary, reproducible measured Q&A path
-  llm_client.py        LLMClient interface with two implementations: DeterministicToolRouterClient
-                       (wraps qa_router, used for the full benchmark) and ClaudeCLIClient (real
-                       `claude -p` subprocess, parses a one-line JSON tool choice, executes it
-                       through the same tools.TOOL_CATALOG)
-  questions.py         held-out question set builder: creates and then deletes real rows to
-                       produce genuinely-missing ids for the 74 refusal-designed questions;
-                       computes an independent reference-oracle citation set per question
-  actions.py           JSON-Schema-defined governed actions (schedule_maintenance, retire_part,
-                       update_recipe_parameters, flag_chamber_for_service, record_part_usage),
-                       each with additionalProperties: false, explicit required fields, id
-                       patterns, and enums; ActionValidator.validate is the single gate to the
-                       approval queue
-  action_generator.py  generates a large batch of action proposals, some schema-valid, most
-                       deliberately malformed or adversarial (13 mutation kinds), standing in
-                       for what an unreliable tool-calling model or a hostile input can produce
-  approval.py          ApprovalQueue: submit() only accepts a ValidatedAction (a type that can
-                       only be constructed by the validator succeeding); decide() records a
+  qa_router.py         deterministic marker-phrase router for the equipment domain
+  llm_client.py        LLMClient interface: DeterministicToolRouterClient (full benchmark) and
+                       ClaudeCLIClient (real `claude -p` subprocess, small sample)
+  questions.py         equipment held-out question set builder (386 questions, 74 refusal-designed)
+  actions.py           equipment JSON-Schema action definitions; ActionValidator
+  action_generator.py  equipment action-proposal generator (13 mutation kinds)
+  approval.py          ApprovalQueue: submit() only accepts a ValidatedAction; decide() records a
                        human's yes/no and never mutates the object model itself
-  manual_baseline.py   the value harness's manual-equivalent answerer: reimplements all 12 tools
-                       one for one over plain Python lists, every indexed Session.get replaced
-                       by a linear scan, every ORM relationship access replaced by a full-table
-                       filter; ScanStats counts real row comparisons, no shortcut
+  manual_baseline.py   the value harness's manual-equivalent answerer for the equipment domain
+
+  # --- clinical domain (Abridge extension) ---
+  clinical_models.py       six typed SQLAlchemy tables (ClinicalPatient, ClinicalEncounter,
+                            ClinicalCondition, ClinicalObservation, ClinicalMedicationRequest,
+                            ClinicalProcedure), sharing models.Base so both domains live in one
+                            database; primary keys are the real FHIR resource ids Synthea assigned
+  clinical_loader.py       loads real Synthea FHIR R4 Bundle JSON files; every Patient, Encounter,
+                            Condition, Observation, MedicationRequest, and Procedure is parsed
+                            through fhir.resources.R4B before being inserted, and a failed parse is
+                            counted and skipped rather than inserted half-formed
+  clinical_tools.py        the clinical read surface: 11 named, typed functions returning a
+                            ClinicalToolResult with mandatory source_object_ids; raises
+                            ClinicalObjectNotFoundError rather than a null-shaped answer
+  clinical_qa_router.py    deterministic marker-phrase router for the clinical domain; every
+                            question template names exactly one FHIR resource id (a UUID), so this
+                            router needs no type-prefix disambiguation
+  clinical_langgraph_agent.py  a real, compiled LangGraph StateGraph (choose_tool -> execute_tool)
+                            wrapping the clinical read path; choose_tool is pluggable:
+                            deterministic_tool_chooser (full benchmark) or claude_cli_tool_chooser
+                            (real `claude -p` subprocess, small sample)
+  clinical_questions.py    clinical held-out question set builder (300 questions, 58
+                            refusal-designed) over the real loaded Synthea patients, with its own
+                            create-and-delete holdout step for genuinely-missing ids
+  clinical_actions.py      two JSON-Schema-defined write intents (place_order, edit_note), each
+                            with additionalProperties: false, explicit required fields, id
+                            patterns, and enums; ClinicalActionValidator.validate is the single
+                            gate to the write-confirmation queue
+  clinical_proposal_generator.py  generates clinical write proposals: 140 schema-valid plus 100
+                            deliberately malformed/adversarial (9 mutation kinds)
+  clinical_approval.py      WriteConfirmationQueue: submit() only accepts a ValidatedClinicalAction;
+                            execute() raises NotConfirmedError unless confirm() was called first,
+                            which is the single enforcement point for "0 executed without confirmation"
+  clinical_scope_guard.py   ScopeGuard: a stateless membership check against the 11 read tool names
+                            and 2 write action type names, refusing anything else before any tool
+                            or action is ever reached
+  clinical_scope_requests.py  the 120 out-of-scope adversarial request names (unsafe-capability,
+                            near-miss, and unimplemented-capability pools) ScopeGuard is measured
+                            against, with a dedicated assertion that none collides with a real name
+
 scripts/
-  init_db.py                          stands up the schema and loads synthetic data
+  # equipment
+  init_db.py                          stands up the equipment schema and loads synthetic data
   run_qa_benchmark.py                 the 386-question, 74-refusal benchmark (deterministic client)
   run_action_validation_benchmark.py  the 500-proposal schema-validation benchmark
   run_live_llm_sample.py              the 20-call real `claude -p` subprocess sample
-  run_value_harness.py                the value harness: assistant vs. manual baseline on the
-                                       same 386 questions, operation counts and wall-clock timing
+  run_value_harness.py                assistant vs. manual baseline on the same 386 questions
+  # clinical
+  init_clinical_db.py                       loads real Synthea FHIR bundles into the clinical tables
+  run_clinical_qa_benchmark.py              the 300-question, 58-refusal clinical benchmark
+  run_write_confirmation_benchmark.py       the 240-proposal (140 valid + 100 malformed) write-
+                                             confirmation benchmark
+  run_out_of_scope_benchmark.py             the 120-request scope-refusal benchmark
+  run_clinical_langgraph_live_sample.py     the 20-call real `claude -p` subprocess sample, routed
+                                             through the compiled LangGraph graph
+
 tests/
   test_models.py, test_tools.py, test_qa_router.py, test_questions.py, test_actions.py,
   test_action_generator.py, test_approval.py, test_llm_client.py, test_postgres_backend.py,
-  test_manual_baseline.py
+  test_manual_baseline.py,
+  test_clinical_tools.py, test_clinical_loader.py, test_clinical_actions.py,
+  test_clinical_approval.py, test_clinical_proposal_generator.py, test_clinical_scope_guard.py,
+  test_clinical_questions.py, test_clinical_qa_router.py, test_clinical_langgraph_agent.py
+  fixtures/synthea_sample/   3 real, trimmed Synthea patient bundles used by the clinical tests
+
 docs/
-  test_output.txt                pytest run, committed raw
-  qa_benchmark_output.txt        run_qa_benchmark.py run, committed raw
-  action_validation_output.txt   run_action_validation_benchmark.py run, committed raw
-  live_llm_sample_output.txt     run_live_llm_sample.py run, committed raw (real subprocess calls)
-  value_harness_output.txt       run_value_harness.py run, committed raw
+  test_output.txt                      pytest run, committed raw
+  qa_benchmark_output.txt              equipment 386-question benchmark, committed raw
+  action_validation_output.txt         equipment 500-proposal benchmark, committed raw
+  live_llm_sample_output.txt           equipment 20-call real `claude -p` sample, committed raw
+  value_harness_output.txt             equipment value harness, committed raw
+  clinical_db_load_output.txt          the real 1,000-patient Synthea load, committed raw
+  clinical_qa_benchmark_output.txt     clinical 300-question benchmark, committed raw
+  write_confirmation_benchmark_output.txt  clinical 240-proposal benchmark, committed raw
+  out_of_scope_benchmark_output.txt    clinical 120-request benchmark, committed raw
+  clinical_langgraph_live_sample_output.txt  clinical 20-call real `claude -p` sample, committed raw
+  hapi_validator_sample_summary.txt    summary of the real HAPI FHIR validator_cli run against a
+                                        25-patient sample (the full raw validator output was
+                                        reviewed but is multiple hundred megabytes; see Validation
+                                        for how the summary was produced and why)
 ```
 
 **Why a fixed tool catalog instead of letting the model see the schema and write queries.** A model that can see table and column names can be talked into writing a query that touches something it should not; a model limited to calling `get_tool_status(tool_id)` by name cannot express that request at all. The tradeoff is coverage: twelve tools cover twelve question shapes, and a shape the catalog does not have is a shape the system correctly cannot answer, refusal by construction rather than by policy.
@@ -90,18 +141,29 @@ docs/
 
 **Why tools/chambers/recipes/parts/maintenance-events instead of the original sites/technicians/assets/parts/work-orders.** The equipment model is a real hierarchy rather than a flat asset registry: a tool has many chambers, a chamber runs recipes, and a maintenance event targets a tool or a chamber and consumes parts. That hierarchy is what let the tool catalog grow relational lookups the original flat model did not need (`list_chambers_for_tool`, `get_recipe_chamber`), which is a closer match to what a real fab equipment ontology looks like than a rename of the original tables would have been.
 
+## Two domains, one pattern
+
+**Why the clinical layer sits beside the equipment layer instead of replacing it, the way the Tokyo Electron extension replaced the original flat asset registry.** The Tokyo Electron extension changed what domain the equipment model represented (fab tools instead of generic field assets) but it was still the same kind of thing: a maintenance operation over physical equipment, so rebuilding the same five-or-six-table shape in place was the honest move, and the original sites/technicians numbers stopped being true of the code and were superseded. The Abridge clinical layer is not a variation on equipment maintenance; it is a different domain with a different user (a clinician, not a technician), a different document source (real government/industry-standard FHIR R4 data generated by an external tool, not this project's own seeded random graph), and a different second property worth measuring (a write-confirmation boundary and a scope guard, not a manual-effort value harness). Overwriting the equipment tables to make room for it would have cost this portfolio a real, still-true set of measured numbers (386/386 equipment questions, 0/200 malformed actions) for no honesty gain; the clinical tables are new names (`clinical_*`) on the same shared `Base` and the same `db.py`, so both domains' numbers stay true at once, in one repository, because they are answers to different questions.
+
+**Why 11 clinical tools over 6 resource types instead of reusing the equipment domain's 12-tool structure.** The resume claim is "11 typed read tools"; the equipment domain's 12 came from 5 object types needing slightly more relational lookups (`get_chamber_tool`, `get_recipe_chamber`) than the clinical domain's 6 types needed once each type got one "list children of a patient" tool and one "get detail of this specific resource" tool (patients get only the second kind, since there is nothing above a patient to list). The two catalogs were designed independently from what each domain's questions actually need to ask, not forced to match in size.
+
+**Why a write-confirmation boundary (`clinical_approval.py`) instead of reusing `approval.ApprovalQueue` directly.** The behavior is nearly identical (submit a validated action, hold it, a human decides), which is why `WriteConfirmationQueue` is structurally almost a copy of `ApprovalQueue`. The one real difference is `execute()`: the equipment domain's `ApprovalQueue.decide()` only ever records a yes/no, it was never asked to also gate a separate "did this get carried out" step, because no equipment-domain claim needed one. The clinical claim ("0 of 140 write proposals executed without confirmation") is specifically about execution, not just approval, so `WriteConfirmationQueue` adds `execute()` as a method that raises `NotConfirmedError` on anything not already confirmed, which is the one piece of new enforcement surface this domain's claim actually needed.
+
+**Why a scope guard exists only on the clinical side.** Nothing about fab equipment exposed a reason to test "a tool name the catalog does not have at all," because the equipment benchmark's refusal cases were always about a real tool name with a missing object id (`ObjectNotFoundError`), not an unknown tool name. The Abridge resume makes "120 of 120 out-of-scope tool requests refused" its own claim, which is a different failure mode (a hallucinated or adversarial tool/action name, never a real catalog entry at all) from either "the object doesn't exist" (covered by the Q&A benchmark's refusal-designed questions) or "the payload doesn't pass its schema" (covered by the write-confirmation benchmark's malformed proposals). `clinical_scope_guard.ScopeGuard` is the one new piece of machinery this property required; nothing analogous was retrofitted onto the equipment domain, because no claim there asked for it.
+
 ## Validation
 
-Five layers, each with committed raw output, regenerated for this build.
+Eleven layers total, five on the equipment domain, six on the clinical domain, each with committed raw output, regenerated for this build.
 
 **1. Test suite** (`docs/test_output.txt`):
 
 ```
-......................................s............................      [100%]
-66 passed, 1 skipped in 8.35s
+........................................................................ [ 63%]
+.............s............................                               [100%]
+113 passed, 1 skipped in 9.96s
 ```
 
-The one skip is `test_postgres_backend.py`, which skips cleanly (with a stated reason, not silently) because PostgreSQL is not running as a service on this machine. The count rose from 61 (original phase) to 66 as the test suite was rebuilt over the new equipment schema, tools, and actions.
+The one skip is `test_postgres_backend.py`, which skips cleanly (with a stated reason, not silently) because PostgreSQL is not running as a service on this machine. The count rose from 66 (Tokyo Electron phase) to 113 as the clinical domain's own test files (`test_clinical_tools.py`, `test_clinical_loader.py`, `test_clinical_actions.py`, `test_clinical_approval.py`, `test_clinical_proposal_generator.py`, `test_clinical_scope_guard.py`, `test_clinical_questions.py`, `test_clinical_qa_router.py`, `test_clinical_langgraph_agent.py`) were added alongside the existing equipment suite, not in place of it.
 
 **2. Q&A benchmark, 386 held-out questions** (`docs/qa_benchmark_output.txt`):
 
@@ -194,6 +256,83 @@ OPERATION-COUNT RATIO (manual comparisons / assistant tool calls): 185.62x
 
 The manual baseline is cross-checked against the same reference-oracle citation set the QA benchmark uses before its timing is trusted, so "185.62x more row comparisons" is a proven-correct manual answerer's cost, not a strawman's. The wall-clock line is discussed in Findings below: it does not mean what it looks like it means. (Both operation-count and wall-clock ratios moved a hair from the original phase's 185.77x / 0.10x to 185.62x / 0.11x on the rebuilt equipment schema; the difference is the new table sizes, not a change in method.)
 
+**6. Real Synthea generation and load, 1,120 patients** (`docs/clinical_db_load_output.txt`):
+
+```
+Records: total=1120, alive=1000, dead=120
+bundles_loaded: 1120
+resource_counts: Patient 1120, Encounter 62506, Condition 38741,
+  Observation 506595, MedicationRequest 51955, Procedure 174178
+fhir_validation_failures: 0
+```
+
+A population-1000 Synthea run produces 1,120 total patient bundles (1,000 alive, 120 simulated deaths Synthea backfills to hold the alive population at the requested size); this project loaded every bundle Synthea actually wrote, meeting the resume's "1,000 Synthea-generated FHIR R4 patients" claim at 1,120, not short of it. 0 of 835,095 loaded resources failed `fhir.resources.R4B` structural validation at ingestion time.
+
+**7. Clinical Q&A benchmark, 300 held-out questions** (`docs/clinical_qa_benchmark_output.txt`):
+
+```
+total questions: 300
+answerable (object present): 242
+refusal-designed (object removed): 58
+citations correct: 242 / 242
+CITATION CORRECTNESS RATE: 100.0000%
+refused: 58 / 58
+REFUSAL RATE: 100.0000%
+300-QUESTION SUMMARY: 300 of 300 answers cited their sources or refused
+```
+
+**8. Write-confirmation benchmark, 240 proposals (140 valid + 100 malformed)** (`docs/write_confirmation_benchmark_output.txt`):
+
+```
+malformed/adversarial proposals: 100
+correctly rejected by the validator: 100
+SCHEMA-INVALID ACTIONS THAT REACHED THE WRITE-CONFIRMATION QUEUE: 0
+valid proposals: 140
+incorrectly rejected (false positive): 0
+submitted to write-confirmation queue: 140
+EXECUTED WITHOUT CONFIRMATION (before any confirm() call): 0 / 140
+confirmed: 70, executed after confirmation: 70
+rejected: 70, still blocked from execution after rejection: 70
+```
+
+0 of the 140 schema-valid write proposals ever executed without an explicit `confirm()` call; a dedicated second check confirms a `reject()`-ed proposal stays permanently blocked from `execute()` too, not just the un-decided ones.
+
+**9. Out-of-scope benchmark, 120 adversarial requests** (`docs/out_of_scope_benchmark_output.txt`):
+
+```
+out-of-scope requests generated: 120
+refused before any execution: 120
+wrongly allowed: 0
+OUT-OF-SCOPE REFUSAL RATE: 100.0000%
+real catalog entries (11 read tools + 2 write actions) still accepted: 13 / 13
+OUT-OF-SCOPE SUMMARY: 120 of 120 out-of-scope tool requests refused
+```
+
+The last line is the check that this is a real membership test, not a guard that refuses everything: all 13 real catalog entries are still accepted by the same `ScopeGuard.check` call that refuses the 120 fakes.
+
+**10. Live LangGraph + LLM sample, 20 real subprocess calls** (`docs/clinical_langgraph_live_sample_output.txt`):
+
+```
+REAL LLM SUBPROCESS CALLS MADE: 20
+answerable sample correct (tool + citation): 15 / 15
+refusal sample correct (refused): 5 / 5
+```
+
+All 20 real `claude -p` calls, routed through the compiled LangGraph graph's `choose_tool` node, chose the correct tool and citation set on the 15 answerable questions and correctly refused on the 5 refusal-designed ones. A handful of raw-output lines in the committed file are truncated with a stated character count (some `list_observations_for_patient` answers cite hundreds of ids for a patient with a long simulated history); the truncation is cosmetic, applied only to the committed doc file for repo size, and does not change any of the pass/fail counts above, which were computed from the untruncated run.
+
+**11. HAPI FHIR validator_cli sample, 25 real patients** (`docs/hapi_validator_sample_summary.txt`, a condensed summary; see Findings for why the full raw output is not committed):
+
+```
+25 of 25 patient bundles scored *FAILURE* by the validator's strict pass/fail line
+Total Error-level lines: 51, all of exactly 3 distinct causes:
+  25x Patient.extension disability-adjusted-life-years (Synthea's own undeclared custom extension)
+  25x Patient.extension quality-adjusted-life-years (Synthea's own undeclared custom extension)
+   1x Patient.extension us-core-race (IG-loading-order artifact, first resource of the whole run only)
+0 errors on any Encounter, Condition, Observation, MedicationRequest, or Procedure resource
+```
+
+The six resource types this project actually reads validate cleanly against the real FHIR R4 (4.0.1) base structure definitions; every hard error found is one of Synthea's own undeclared custom extensions on the Patient resource, not a defect in anything `clinical_loader.py` parses.
+
 ## Findings
 
 **What actually broke during the original build: running the scripts directly, not through pytest, fails without one extra step.** `python scripts/run_qa_benchmark.py` (and the other scripts) raise `ModuleNotFoundError: No module named 'ontology_agent'` when invoked exactly as written in their own docstrings. The first guess was a missing dependency; `pip freeze` inside the venv showed SQLAlchemy, jsonschema, and everything else already installed, which ruled that out in one step. The actual cause is simpler and easy to miss: pytest inserts the repository root onto `sys.path` itself (because `tests/` has no `__init__.py` and pytest's rootdir-insertion behavior picks up the package next to it), so `python -m pytest tests -q` finds `ontology_agent` with no extra configuration, but a bare `python scripts/run_qa_benchmark.py` only ever puts `scripts/` itself on `sys.path`, never the parent directory the package actually lives in. The fix is not a code change, since importing `ontology_agent` by absolute name from inside `scripts/` is the correct design (it is the same import every test file uses); the fix is stating the real invocation, `PYTHONPATH=.` (or the Windows equivalent, `set PYTHONPATH=.`) before the script, which is what the Building and running commands below use. This is exactly the kind of gap a docstring's example command can hide until someone actually runs it, which is the reason every command in this README was re-run for this build rather than assumed correct from a prior partial run.
@@ -204,11 +343,15 @@ The manual baseline is cross-checked against the same reference-oracle citation 
 
 **Extending to the equipment domain: rebuilding the schema, the tools, and the question set together, not independently.** The five original tables (Site, Technician, Asset, Part, WorkOrder, WorkOrderPart) were replaced with Tool, Chamber, Recipe, Part, MaintenanceEvent, and MaintenanceEventPart, encoding a real hierarchy (tool has many chambers, chamber runs recipes, maintenance event targets a tool or chamber and consumes parts) rather than a flat asset registry. Every one of the 12 tools, the 5 governed action schemas, and the question-template generator had to change together, because the question set's reference-oracle citations (`questions._expected_sources`) are computed directly against the new foreign-key graph; the extension was not a find-and-replace of table names but a rebuild of the tool catalog, the action schemas, and the held-out question set from the new schema up. The held-out question set still lands on exactly 386 questions (312 answerable, 74 refusal-designed) because the question-count constants in `questions.py` were carried over unchanged; this is a consequence of the generator's own fixed template count, not evidence that the domain swap changed nothing.
 
+**Validating real Synthea FHIR data against HAPI's R4 validator: the first attempt's "errors" were a bug in this project's own stripping script, not a finding about the data.** Symptom: stripping `meta.profile` from 25 sample bundles (see Validation, layer 11, for why that stripping happens at all) by setting `meta` to `{}` produced 18,779 and 18,830 "Error" lines reading `Constraint failed: ele-1: 'All FHIR elements must have a @value or children'`, on nearly every resource in the sample. The first hypothesis was that Synthea's own output was somehow malformed; that did not survive inspection, because `ele-1` is FHIR's own base invariant that any element (including a `meta` object) must have a value or children, and an empty `{}` left behind by the stripping script fails that invariant by construction, on any FHIR resource, regardless of what Synthea put there. The fix was not a validator flag, it was deleting the `meta` key entirely once `profile` was the only thing in it. Re-run with the fix: 51 real Error-level lines total, across the same 25-patient sample, every one of them either Synthea's own undeclared custom `disability-adjusted-life-years`/`quality-adjusted-life-years` extensions (not an HL7-recognized extension URL, correctly rejected by a validator that was never given Synthea's own extension package) or a one-off IG-package-loading-order artifact on the very first resource of the entire run. 0 errors on any of the six resource types this project's `clinical_loader.py` actually parses. The corrected run and its full accounting are `docs/hapi_validator_sample_summary.txt`; the first attempt's 73 MB of spurious-error output was reviewed locally to find this root cause and then discarded, not committed.
+
+**The write-confirmation benchmark's `GeneratedProposal`-style naming collided with the equipment domain's and had to be namespaced.** `clinical_proposal_generator.py` is a close structural cousin of `action_generator.py` (same mutation-kind pattern, same "most mutations, one real correctness-guarding test" discipline), which is intentional reuse of a working design; `ClinicalActionValidationError`, `ValidatedClinicalAction`, and `GeneratedClinicalProposal` all carry the `Clinical` prefix specifically so that `from ontology_agent.actions import *` and `from ontology_agent.clinical_actions import *` in the same test session (as `tests/` already does, importing both domains) cannot silently shadow one domain's validator with the other's.
+
 ## Measured results
 
-Machine: 8 physical / 16 logical cores, Windows 11 Home (build 10.0.26200), Python 3.12.10, SQLAlchemy 2.0.52, jsonschema 4.26.0, pytest 9.1.1, `claude` CLI 2.1.241. All numbers below are single-run measurements from the exact commands in Building and running; the deterministic benchmarks are bit-for-bit reproducible run to run (same seed, no network, no threading), so no range is given for them.
+Machine: 8 physical / 16 logical cores, Windows 11 Home (build 10.0.26200), Python 3.12.10, SQLAlchemy 2.0.52, jsonschema 4.26.0, pytest 9.1.1, `fhir.resources` 7.1.0, `langgraph` 1.2.16, `claude` CLI 2.1.302. All numbers below are single-run measurements from the exact commands in Building and running; the deterministic benchmarks are bit-for-bit reproducible run to run (same seed, no network, no threading), so no range is given for them.
 
-**The headline number: 386/386 questions handled correctly, 312 answered with a correct citation and 74 correctly refused, with 0 schema-invalid actions ever reaching a human, and a manual-equivalent baseline needing 185.62x the row comparisons to answer the same 386 questions.**
+**Equipment headline: 386/386 questions handled correctly, 312 answered with a correct citation and 74 correctly refused, with 0 schema-invalid actions ever reaching a human, and a manual-equivalent baseline needing 185.62x the row comparisons to answer the same 386 questions.**
 
 | Claim | Measured | Meets claim |
 |---|---|---|
@@ -223,6 +366,21 @@ What "citation correctness" measures: whether the set of object ids a tool call 
 What "0 schema-invalid actions reached the approval queue" does and does not cover: it covers every proposal the generator constructed, including 4 categories of non-dict adversarial input and 13 total mutation kinds; it does not cover a live LLM's actual malformed tool-call output distribution, because the live LLM sample above (20 calls) never produced a malformed action proposal at all, only correct tool choices and correct refusals. The 0-schema-invalid claim is proven against the generator's 200 deliberately-broken proposals, not against a large live-LLM adversarial sample, because no live LLM run in this build produced one to measure.
 
 What the value harness measures, and what it does not: it measures how many row comparisons a verified-correct, linear-scan-and-manual-join answerer needs to answer the identical 386 questions the assistant answers through 386 indexed tool calls (185.62x), and it separately measures wall-clock time for both paths in this one Python process (0.11x, favoring the manual path). The operation-count ratio is the number this repository stands behind as the value claim, because it counts the thing that actually scales with manual effort, rows a person has to check, and is unaffected by which language or ORM either path happens to be implemented in. The wall-clock ratio is reported honestly alongside it but is not the value claim: it mixes real manual-effort scaling (which favors the assistant, more comparisons take more time) with SQLAlchemy's fixed per-call overhead at this table's small size, which favors a bare Python loop and would not favor it at a production ontology's actual row counts or against an actual timed human. Neither number is a live user study; both are disclosed, measured proxies from this machine, not an assertion.
+
+**Clinical headline: 1,120 real Synthea-generated FHIR R4 patients loaded with 0 structural validation failures; 300/300 clinical questions cited their sources or refused (242/242 answerable cited exactly, 58/58 holdout questions correctly refused); 0 of 140 write proposals ever executed without confirmation; 120/120 out-of-scope requests refused while all 13 real catalog entries stayed reachable; 20/20 real LangGraph + `claude -p` calls correct.**
+
+| Claim | Measured | Meets claim |
+|---|---|---|
+| 1,000 Synthea-generated FHIR R4 patients | 1,120 real patient bundles generated and loaded (1,000 alive + 120 simulated deaths Synthea backfills for a population-1000 run); 0/835,095 resources failed fhir.resources.R4B validation | yes, exceeds |
+| 11 typed read tools that each return the resource ids behind their answer | 11/11 read tools are typed, named functions over `clinical_models.py`, each returning a `ClinicalToolResult` with mandatory `source_object_ids` | yes |
+| Every order-placing or note-editing intent held as a JSON-Schema-validated proposal | `place_order` and `edit_note` are JSON-Schema-defined; `ClinicalActionValidator.validate` is the single gate to `WriteConfirmationQueue.submit` | yes |
+| 300 of 300 answers cited their sources or refused | 242/242 answerable questions cited exactly (100.0000%), 58/58 correctly refused (100.0000%), 300/300 total | yes |
+| 0 of 140 write proposals executed without confirmation | 0/140 executed before `confirm()`; a rejected proposal stays blocked too (checked separately) | yes |
+| 120 of 120 out-of-scope tool requests refused | 120/120 refused by `ScopeGuard.check`, with all 11 real tools and 2 real actions still accepted by the same check | yes |
+
+What "11 typed read tools" required that the equipment domain's 12 did not, and vice versa: see "Two domains, one pattern" above; the two catalogs were sized independently from what each domain's own question set needed, not matched to each other.
+
+What "0 of 140 write proposals executed without confirmation" does and does not cover: it covers every schema-valid proposal this benchmark generated (140, half confirmed and executed, half rejected and verified still blocked); it does not cover a live LLM's actual confirmation-bypassing attempt, because no live run in this build asked the model to skip confirmation, only to choose a tool. The out-of-scope benchmark (layer 9) is the one that specifically covers an adversarial attempt to reach something outside the declared catalog, including `skip_confirmation_step` and `override_write_confirmation` by name; both were refused before being matched to any real action.
 
 ## Building and running
 
@@ -264,13 +422,53 @@ set OPERATIONS_AGENT_DATABASE_URL=postgresql+psycopg2://postgres@localhost/opsag
 python -m pytest tests/test_postgres_backend.py -q
 ```
 
+**Clinical domain.** Requires a real Synthea output directory (not committed; too large, see Honest framing):
+
+```
+# generate 1,000 patients with Synthea (download synthea-with-dependencies.jar from
+# https://github.com/synthetichealth/synthea/releases, master-branch-latest release)
+java -jar synthea-with-dependencies.jar -s 20261017 -p 1000 --exporter.fhir.export true --exporter.baseDirectory ./synthea_output
+
+# load the real FHIR bundles into the clinical tables (writes data/operations.db, shared with the equipment domain)
+set PYTHONPATH=.
+python scripts/init_clinical_db.py ./synthea_output/fhir
+
+# the 300-question clinical benchmark (deterministic router)
+set PYTHONPATH=.
+python scripts/run_clinical_qa_benchmark.py
+
+# the 240-proposal write-confirmation benchmark
+set PYTHONPATH=.
+python scripts/run_write_confirmation_benchmark.py
+
+# the 120-request out-of-scope benchmark (no clinical data load needed)
+set PYTHONPATH=.
+python scripts/run_out_of_scope_benchmark.py
+
+# the real LangGraph + LLM sample (20 genuine `claude -p` subprocess calls)
+set PYTHONPATH=.
+python scripts/run_clinical_langgraph_live_sample.py
+```
+
+To reproduce the real HAPI FHIR validator sample (download `validator_cli.jar` from `https://github.com/hapifhir/org.hl7.fhir.core/releases`, a ~200 MB jar, not committed):
+
+```
+java -jar validator_cli.jar <25 sample patient bundle files, with meta.profile stripped> -version 4.0.1 -tx n/a
+```
+
+See `docs/hapi_validator_sample_summary.txt` for exactly why `meta.profile` is stripped first and what the first, uncorrected attempt got wrong.
+
 ## Sibling comparison
 
 This portfolio's `guarded-instruction-validation` (https://github.com/Manas103/guarded-instruction-validation) is the closest sibling: both refuse rather than guess, and both hold anything uncertain for a human rather than acting on it. The difference this repo exists to fix is disclosed directly in its own README: `guarded-instruction-validation` measures 96.99% field-level precision and 0 unreviewed automated approvals over 2,000 instructions with a real `AnthropicLLMClient` implemented but never actually run before those numbers were written down. This repo's headline numbers (386/386 questions, 0/200 schema-invalid actions) come entirely from the free, deterministic path by design, exactly like its sibling, but this repo also makes and reports a small, explicitly-counted live-LLM run (20 real `claude -p` calls, 20/20 correct) rather than leaving the real backend unexercised, which is the one gap being closed here.
 
 `agent-action-harness-deterministic-oracle` (https://github.com/Manas103/agent-action-harness-deterministic-oracle) is this repo's execution-side sibling: it executes and grades multi-step actions against ground truth via an independent oracle, where this repo proposes actions and holds them for a human to decide. The two make opposite bets about where the risk sits: this repo trusts nothing to execute unsupervised (every mutation waits for `approval.decide()`); the sibling trusts an oracle to grade execution after the fact and finds a 33-point overcredit gap between its oracle and a transcript-only judge, evidence for exactly the caution this repo's approval gate is built around.
 
+This portfolio's `note-quality-judge-harness` (https://github.com/Manas103/note-quality-judge-harness) is the clinical layer's own closest sibling, built in the same build as this repo's clinical extension: both compare a reference-free judge against a reference-based one and report where the reference-free judge over-credits. The difference is what each repo is actually testing. This repo's clinical layer tests whether a *tool-use agent* answers clinical questions and holds writes for confirmation (citation correctness and a confirmation boundary, not note quality itself); `note-quality-judge-harness` tests whether an *evaluation harness* can tell a good generated note from a flawed one. Put together, they cover both halves of an Abridge-shaped product: an agent that acts safely, and a judge that checks what it produces.
+
 ## Limitations
+
+Equipment domain:
 
 - The question set uses fixed marker-phrase templates (`questions.py`), not free-form natural-language phrasing; citation correctness measures the tool layer and the reference-oracle match, not a general NLU capability. A rephrased question outside the template set would not be recognized by the deterministic router at all (`RoutingError`), and would need to go through the real LLM path to have a chance of being handled.
 - The live LLM sample is 20 calls, not the full 386; it is real evidence that the backend works end to end, not a claim that the LLM path matches the deterministic router's 100% at the same scale.
@@ -279,3 +477,12 @@ This portfolio's `guarded-instruction-validation` (https://github.com/Manas103/g
 - The five object types and twelve tools cover this repository's synthetic fab-equipment maintenance domain; extending the ontology to a new object type means adding a table, a tool, and (for governed writes) a schema, none of which is automatic.
 - The value harness's manual-effort proxy is operation counts (row comparisons), not a live-timed human being; no person was actually timed doing these lookups. The wall-clock side of the harness is reported honestly but should not be read as "the assistant is 0.11x as fast as a human", it is a measurement of Python-object and SQLAlchemy-session overhead at this table size, discussed in Findings, and it would not generalize to either a real human's speed or a production-sized ontology store.
 - The value harness shares question routing with the assistant (see Architecture); it does not charge the manual path for parsing the question, only for looking the answer up once the lookup is known, which is a deliberate scope choice, not an oversight.
+
+Clinical domain:
+
+- The clinical question set, like the equipment one, uses fixed marker-phrase templates (`clinical_questions.py`); the same NLU caveat applies, and the same LangGraph + `claude_cli_tool_chooser` path exists for free-form phrasing, exercised only on the 20-call sample.
+- `fhir.resources.R4B`, not a dedicated R4 (4.0.1) Pydantic module, is what validates every loaded resource at ingestion time; this is disclosed as a practical substitution (schema-stable for the six resource types this project reads), not a claim of exact R4 identity. The real HAPI FHIR R4 (4.0.1) `validator_cli` is the authoritative check, and it only ran on a 25-patient sample, not the full 1,120.
+- The write-confirmation boundary and the scope guard are both enforcement logic this project built and tested itself; neither is a claim about what a real EHR's write API would accept, reject, or audit, and no write proposal in this benchmark was ever sent to a real FHIR server.
+- The out-of-scope benchmark's 120 requests are hand-authored names (unsafe-capability, near-miss, and unimplemented-capability pools, padded with numbered variants to reach exactly 120), not a sample of a live model's actual hallucination distribution; `ScopeGuard` is proven correct against these 120, not against whatever a real deployed LLM would actually ask for.
+- The clinical layer does not repeat the equipment domain's manual-effort value harness (see "Two domains, one pattern"); it has no claim about whether the agent is faster than a clinician doing the same lookup.
+- 1,120 real Synthea patients is a single simulated population from one fixed seed; Synthea's own disease-module probabilities, not this project, decided what conditions, encounters, and medications any given synthetic patient accumulated, so the clinical content (as opposed to the FHIR structure) reflects Synthea's modeling choices, not real epidemiology.

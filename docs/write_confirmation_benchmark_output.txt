@@ -1,0 +1,35 @@
+total proposals generated: 240
+  ground-truth valid: 140
+  ground-truth malformed/adversarial: 100
+
+--- schema validation of malformed/adversarial proposals ---
+malformed/adversarial proposals: 100
+correctly rejected by the validator: 100
+SCHEMA-INVALID ACTIONS THAT REACHED THE WRITE-CONFIRMATION QUEUE: 0
+
+rejections by mutation kind:
+  bad_id_pattern: 11
+  empty_required_string: 11
+  extra_disallowed_field: 11
+  invalid_enum_order_type: 11
+  missing_required_field: 12
+  not_a_dict_int: 2
+  not_a_dict_list: 3
+  not_a_dict_none: 3
+  not_a_dict_string: 3
+  null_action_type: 11
+  unknown_action_type: 11
+  wrong_type_field_as_list: 11
+
+--- valid proposals should pass unchanged ---
+valid proposals: 140
+incorrectly rejected (false positive): 0
+submitted to write-confirmation queue: 140
+
+EXECUTED WITHOUT CONFIRMATION (before any confirm() call): 0 / 140
+
+--- human decision pass over the 140 submitted proposals ---
+confirmed: 70, executed after confirmation: 70
+rejected: 70, still blocked from execution after rejection: 70
+
+WRITE-CONFIRMATION SUMMARY: 0 of 140 write proposals executed without confirmation (checked before any decision, and confirmed again that a rejected proposal stays blocked)

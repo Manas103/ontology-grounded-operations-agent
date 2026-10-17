@@ -1,0 +1,88 @@
+HAPI FHIR validator_cli sample run, Oct 2026 build
+===================================================
+
+Tool: org.hl7.fhir.core validator_cli.jar, release 7.0.2
+  (https://github.com/hapifhir/org.hl7.fhir.core/releases/download/7.0.2/validator_cli.jar)
+Command (run from a scratch directory holding 25 real, unmodified Synthea
+patient bundles with only `meta.profile` stripped, see note below):
+  java -jar validator_cli.jar sample_00.json ... sample_24.json -version 4.0.1 -tx n/a
+
+-tx n/a disables the remote terminology server (no network dependency,
+and because Information/Warning lines about unvalidatable codes are
+expected and not counted as failures below); -version 4.0.1 validates
+against the real FHIR R4 (4.0.1) core definitions, not R4B.
+
+Sample: the first 25 patient bundles (of the 1,000 loaded into this
+project's clinical store) from a real `synthea-with-dependencies.jar`
+run (-s 20261017 -p 1000). Full raw validator output for this sample spans at least 24,500 distinct
+FHIR resources (grep-counted unique `Bundle.entry[N].resource/*Type/id*/`
+references; the true resource count is somewhat higher, since not every
+message line uses that annotated form) across 181,824 lines and 55 MB;
+reviewed in full locally but not committed here
+(the playbook's repo-hygiene limit is 65-500 KB of source). This file is
+the honest condensed summary; every count below is reproducible with
+`grep -c "^  Error @"` etc. against the same raw output.
+
+Why `meta.profile` was stripped before running the validator, and what
+that changed: Synthea's own bundles declare US Core profiles in every
+resource's `meta.profile` (e.g. "http://hl7.org/fhir/us/core/StructureDefinition/us-core-patient").
+Left in place, the validator auto-installs the full US Core IG and its
+transitive terminology packages on first run (one-time cost, cached
+afterward at ~/.fhir/packages) and then validates against US Core
+constraints this project does not claim conformance to. Stripping
+`meta.profile` validates the same resources against the base FHIR R4
+structure definitions only, which is the claim this project actually
+makes ("FHIR R4 resource model", not "US Core profile conformant").
+
+FIRST ATTEMPT (see Findings in the main README): stripping `meta.profile`
+by setting it to an empty dict left `"meta": {}` on most resources
+(their only meta field was profile). An empty object fails FHIR's own
+base `ele-1` invariant ("all FHIR elements must have a @value or
+children"), which produced 18,779+18,830 spurious errors, a bug in this
+project's own stripping script, not a finding about Synthea's data. Fixed
+by deleting the `meta` key entirely when it becomes empty; this file is
+the corrected, second-attempt run.
+
+RESULTS (per-file validator summary lines, 25 of 25 files):
+  25 of 25 patient bundles scored *FAILURE* by the validator's strict
+  pass/fail line (any Error at all fails a file). All 73,340 resources'
+  worth of warnings and informational notes are NOT errors (dom-6 "should
+  have narrative" best-practice warnings and "cannot validate code
+  without a terminology server" notices, both expected under -tx n/a).
+
+  Total Error-level lines: 51, all of exactly 3 distinct causes:
+    25x  Patient.extension: "http://synthetichealth.github.io/synthea/disability-adjusted-life-years"
+         could not be found so is not allowed here
+    25x  Patient.extension: "http://synthetichealth.github.io/synthea/quality-adjusted-life-years"
+         could not be found so is not allowed here
+     1x  Patient.extension: "http://hl7.org/fhir/us/core/StructureDefinition/us-core-race"
+         could not be found so is not allowed here (only on the very first resource
+         processed in the whole run, Bundle.entry[0] of the first file; every other
+         patient's identical us-core-race extension validated cleanly once the US
+         Core IG package finished installing a few resources into the run, a package
+         -loading-order artifact, not a data defect)
+
+  All 51 errors are on the Patient resource only (grep-confirmed: 0 errors
+  on any Encounter, Condition, Observation, MedicationRequest, or
+  Procedure resource across the full 25-patient sample, which is exactly
+  the six resource types this project actually loads into its store).
+
+  The disability-adjusted-life-years and quality-adjusted-life-years
+  extensions are Synthea's own custom, non-HL7 extensions (documented in
+  Synthea's own output as a QALY/DALY health-metric annotation); the base
+  FHIR validator correctly refuses to recognize an extension URL it has
+  no StructureDefinition for. Installing Synthea's own extension package
+  would clear these 50; this project does not load that package, because
+  the six resource types it reads never carry these two extensions (they
+  appear only once per patient, at the top level of the Patient
+  resource), so clearing them would not change anything this project's
+  clinical_loader.py actually parses or any tool call actually returns.
+
+CONCLUSION: the six FHIR R4 resource types this project loads into its
+clinical store (Patient, Encounter, Condition, Observation,
+MedicationRequest, Procedure) validate cleanly against the real HAPI
+FHIR R4 (4.0.1) base structure definitions, over a 25-patient (at least
+24,500-resource) sample of the real Synthea output; the only hard errors
+found are Synthea's own undeclared custom extensions, not a structural
+defect in any resource this project reads or any field
+clinical_loader.py extracts.

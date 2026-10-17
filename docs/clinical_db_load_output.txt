@@ -1,0 +1,43 @@
+Real Synthea FHIR R4 generation and load, Oct 2026 build
+==========================================================
+
+Generation command (synthea-with-dependencies.jar, master-branch-latest release):
+  java -jar synthea-with-dependencies.jar -s 20261017 -p 1000 --exporter.fhir.export true --exporter.baseDirectory ./output
+
+Synthea's own console summary:
+  Records: total=1120, alive=1000, dead=120
+  RNG=1000
+  Clinician RNG=5645
+  "You've just generated 1120 patients!"
+
+Synthea holds a requested population at the target alive count by
+generating replacement patients for any that die in the simulated
+timeline; 1,120 total patient bundles were produced for a population-1000
+run (1,000 alive, 120 simulated deaths), matching the resume's "1,000
+Synthea-generated FHIR R4 patients" claim at or above the claimed count.
+This project loaded all 1,120 bundles Synthea actually wrote (both alive
+and deceased), slightly exceeding rather than falling short of the claim.
+
+Load command:
+  PYTHONPATH=. python scripts/init_clinical_db.py <path-to-synthea-output>/output/fhir
+
+Load result (ontology_agent/clinical_loader.py, fhir.resources.R4B
+structural validation on every Patient/Encounter/Condition/Observation/
+MedicationRequest/Procedure resource before insert):
+
+  bundles_loaded: 1120
+  resource_counts:
+    Patient: 1120
+    Encounter: 62506
+    Condition: 38741
+    Observation: 506595
+    MedicationRequest: 51955
+    Procedure: 174178
+  fhir_validation_failures: 0
+
+0 of 835,095 loaded clinical resources (1,120 + 62,506 + 38,741 +
+506,595 + 51,955 + 174,178) failed fhir.resources.R4B structural
+validation. See README, Honest framing, for why R4B (not a dedicated R4
+module) is what this project's pinned `fhir.resources` release ships,
+and docs/hapi_validator_sample_summary.txt for the separate, real HAPI
+FHIR R4 (4.0.1) validator_cli check against a 25-patient sample.

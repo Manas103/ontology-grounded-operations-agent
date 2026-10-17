@@ -7,6 +7,11 @@ points at one, and falls back to a real, on-disk SQLite database otherwise.
 Callers (and tests) that specifically need PostgreSQL should call
 `postgres_is_reachable()` first and skip cleanly if it returns False; that is
 exactly what `tests/test_postgres_backend.py` does.
+
+Shared by both domain layers: `init_db` creates the equipment tables
+(`models.py`) and the clinical FHIR tables (`clinical_models.py`) in the
+same database, which is why this module imports `clinical_models` even
+though nothing in this file calls it directly.
 """
 from __future__ import annotations
 
@@ -17,6 +22,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from ontology_agent.models import Base
+from ontology_agent import clinical_models  # noqa: F401 (registers the clinical tables on Base)
 
 DEFAULT_SQLITE_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "operations.db"

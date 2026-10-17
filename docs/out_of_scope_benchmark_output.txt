@@ -1,0 +1,8 @@
+out-of-scope requests generated: 120
+refused before any execution: 120
+wrongly allowed: 0
+OUT-OF-SCOPE REFUSAL RATE: 100.0000%
+
+real catalog entries (11 read tools + 2 write actions) still accepted: 13 / 13
+
+OUT-OF-SCOPE SUMMARY: 120 of 120 out-of-scope tool requests refused

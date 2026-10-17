@@ -1,0 +1,15 @@
+total questions: 300
+answerable (object present): 242
+refusal-designed (object removed): 58
+
+--- citation correctness on answerable questions ---
+answerable questions answered without refusing: 242
+answerable questions incorrectly refused: 0
+citations correct: 242 / 242
+CITATION CORRECTNESS RATE: 100.0000%
+
+--- refusal rate on the 58 holdout (missing-object) questions ---
+refused: 58 / 58
+REFUSAL RATE: 100.0000%
+
+300-QUESTION SUMMARY: 300 of 300 answers cited their sources or refused

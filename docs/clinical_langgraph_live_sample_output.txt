@@ -1,0 +1,44 @@
+[1] ANSWERABLE  CQ-0147: 'What observations are recorded for patient 332458ac-d3be-6d28-20cc-35a8bb8fb6ef?'
+    tool=list_observations_for_patient refused=False citations=['332458ac-d3be-6d28-20cc-35a8bb8fb6ef', '332458ac-d3be-6d28-3252-a56830af5672', '332458ac-d3be-6d28-8ae9-70d05efee808', '332458ac-d3be-6d28-8e93-51456078564d', '332458ac-d3be-6d28-5e6c-5470214153da', '332458ac-d3be-6d28-3fc0-3468a5f56ec ...[line truncated for repo size; 104755 chars in the real raw output]
+[2] ANSWERABLE  CQ-0289: 'When was procedure 75a374ea-36a1-9c8b-2681-c17183768fef performed?'
+    tool=get_procedure_detail refused=False citations=['75a374ea-36a1-9c8b-2681-c17183768fef'] -> CORRECT
+[3] ANSWERABLE  CQ-0277: 'When was procedure b2298e4c-dd8d-6878-58c4-d5ee0ea30472 performed?'
+    tool=get_procedure_detail refused=False citations=['b2298e4c-dd8d-6878-58c4-d5ee0ea30472'] -> CORRECT
+[4] ANSWERABLE  CQ-0066: 'What is the clinical status of condition b76e19bf-1b7d-37ac-f8c0-6f401f0b3290?'
+    tool=get_condition_detail refused=False citations=['b76e19bf-1b7d-37ac-f8c0-6f401f0b3290'] -> CORRECT
+[5] ANSWERABLE  CQ-0282: 'When was procedure 40b88b0b-71e3-9d52-4d34-ba137395bf3b performed?'
+    tool=get_procedure_detail refused=False citations=['40b88b0b-71e3-9d52-4d34-ba137395bf3b'] -> CORRECT
+[6] ANSWERABLE  CQ-0087: 'What medication requests exist for patient c073da74-f5a8-23c9-c2f1-2d838dd7ce81?'
+    tool=list_medication_requests_for_patient refused=False citations=['c073da74-f5a8-23c9-c2f1-2d838dd7ce81', 'c073da74-f5a8-23c9-da32-24e53794e70f', 'c073da74-f5a8-23c9-f281-f4f7bf8578fc', 'c073da74-f5a8-23c9-8f2f-4476b6b8ca23', 'c073da74-f5a8-23c9-e3cf-32ae45a49a42', 'c073da74-f5a8-23c9-2346-df94 ...[line truncated for repo size; 24282 chars in the real raw output]
+[7] ANSWERABLE  CQ-0144: 'What observations are recorded for patient 1b1a63df-2aa6-a721-ea70-a2b9bd0b89c7?'
+    tool=list_observations_for_patient refused=False citations=['1b1a63df-2aa6-a721-ea70-a2b9bd0b89c7', '1b1a63df-2aa6-a721-f9d0-67b7752488ff', '1b1a63df-2aa6-a721-22fc-7a6e8643a8c4', '1b1a63df-2aa6-a721-b9ab-a5e2c26e0167', '1b1a63df-2aa6-a721-195b-864af5fa31b4', '1b1a63df-2aa6-a721-b488-706e4d27420 ...[line truncated for repo size; 12035 chars in the real raw output]
+[8] ANSWERABLE  CQ-0248: 'What procedures are recorded for patient e65e1e2a-af5b-db03-ce50-795c4ad6afee?'
+    tool=list_procedures_for_patient refused=False citations=['e65e1e2a-af5b-db03-ce50-795c4ad6afee', 'e65e1e2a-af5b-db03-e313-9efc208995fa', 'e65e1e2a-af5b-db03-046e-815dcc3ac461', 'e65e1e2a-af5b-db03-77f1-2998f7f2e327', 'e65e1e2a-af5b-db03-a4b2-e6214a96365d', 'e65e1e2a-af5b-db03-c5e2-06518fa0b3b4' ...[line truncated for repo size; 713 chars in the real raw output]
+[9] ANSWERABLE  CQ-0214: 'What encounters does patient cdb732b3-18b8-96b2-5f15-179074fd9489 have on record?'
+    tool=list_encounters_for_patient refused=False citations=['cdb732b3-18b8-96b2-5f15-179074fd9489', 'cdb732b3-18b8-96b2-0cb7-d04259033705', 'cdb732b3-18b8-96b2-e9ad-5ee750e63221', 'cdb732b3-18b8-96b2-a5ce-d3a9eb5b15c3', 'cdb732b3-18b8-96b2-b7d8-5147047e0ae7', 'cdb732b3-18b8-96b2-4b97-1bbf935ce0a9' ...[line truncated for repo size; 1393 chars in the real raw output]
+[10] ANSWERABLE  CQ-0169: 'What value was recorded for observation 762260f3-d899-6c90-e9b0-55f212c9b5e2?'
+    tool=get_observation_value refused=False citations=['762260f3-d899-6c90-e9b0-55f212c9b5e2'] -> CORRECT
+[11] ANSWERABLE  CQ-0124: 'What is the status of medication request 891cc17c-30e6-e7dd-ee0b-27556d9c659b?'
+    tool=get_medication_request_status refused=False citations=['891cc17c-30e6-e7dd-ee0b-27556d9c659b'] -> CORRECT
+[12] ANSWERABLE  CQ-0247: 'What procedures are recorded for patient bb09acc9-15a4-2040-e818-68b9d8dec5ad?'
+    tool=list_procedures_for_patient refused=False citations=['bb09acc9-15a4-2040-e818-68b9d8dec5ad', 'bb09acc9-15a4-2040-bf11-d91368ce3496', 'bb09acc9-15a4-2040-8d66-756ec20d5d49', 'bb09acc9-15a4-2040-c443-9a8f0384971a', 'bb09acc9-15a4-2040-18da-b332285b78c1', 'bb09acc9-15a4-2040-125d-879f47aafd2f' ...[line truncated for repo size; 32873 chars in the real raw output]
+[13] ANSWERABLE  CQ-0016: 'What are the demographics on file for patient 9da8cbfe-feee-da8e-8715-88efad057570?'
+    tool=get_patient_demographics refused=False citations=['9da8cbfe-feee-da8e-8715-88efad057570'] -> CORRECT
+[14] ANSWERABLE  CQ-0040: 'What conditions are recorded for patient f7167793-108a-9052-a603-32b4060bf15a?'
+    tool=list_conditions_for_patient refused=False citations=['f7167793-108a-9052-a603-32b4060bf15a', 'f7167793-108a-9052-8b9d-f98f0ac876f3', 'f7167793-108a-9052-d294-a540b168d165', 'f7167793-108a-9052-aca0-b39a8eefc81c', 'f7167793-108a-9052-92c2-8e49264bfe3a', 'f7167793-108a-9052-0651-884fb5834b52' ...[line truncated for repo size; 713 chars in the real raw output]
+[15] ANSWERABLE  CQ-0064: 'What is the clinical status of condition af56ef4d-9e9c-60f8-c8f8-b72c21b493a5?'
+    tool=get_condition_detail refused=False citations=['af56ef4d-9e9c-60f8-c8f8-b72c21b493a5'] -> CORRECT
+[16] REFUSAL-DESIGNED  CQ-0084: 'What is the clinical status of condition holdout-db8f1beb-0d1f-76f6-3756-725d6d5a2f46?'
+    model refused: True  -> CORRECT
+[17] REFUSAL-DESIGNED  CQ-0299: 'When was procedure holdout-0759aafd-88ee-dea5-69fa-f1f07762a46e performed?'
+    model refused: True  -> CORRECT
+[18] REFUSAL-DESIGNED  CQ-0052: 'What conditions are recorded for patient holdout-b3a20b6c-6c6b-0b41-b40b-03947ea321be?'
+    model refused: True  -> CORRECT
+[19] REFUSAL-DESIGNED  CQ-0161: 'What observations are recorded for patient holdout-34296a83-d4a8-142a-a7f8-c874e6b9197d?'
+    model refused: True  -> CORRECT
+[20] REFUSAL-DESIGNED  CQ-0165: 'What observations are recorded for patient holdout-8b2de277-fdb6-c553-3aae-19f800e0004a?'
+    model refused: True  -> CORRECT
+
+REAL LLM SUBPROCESS CALLS MADE: 20
+answerable sample correct (tool + citation): 15 / 15
+refusal sample correct (refused): 5 / 5
